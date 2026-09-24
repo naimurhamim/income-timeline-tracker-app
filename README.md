@@ -20,7 +20,7 @@
 > **A beautifully designed mobile application to forecast, track, and manage your upcoming and received income.**
 > Featuring recurring projections, local database management, robust security via PIN, and a dynamic dashboard for complete financial visibility!
 
-[![Made by](https://img.shields.io/badge/Made%20by-Mobile%20Engineer-0e76a8?style=flat-square)](#)
+[![Made by](https://img.shields.io/badge/Made%20by-Naimur%20Rashid-0e76a8?style=flat-square)](#)
 [![Year](https://img.shields.io/badge/Year-2026-0e76a8?style=flat-square)](#)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](#)
 [![Dart](https://img.shields.io/badge/Dart-3.0+-blue?style=flat-square)](#)
