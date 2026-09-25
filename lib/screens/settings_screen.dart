@@ -5,11 +5,33 @@ import '../providers/category_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/currency_provider.dart';
 import '../services/auth_service.dart';
+import '../services/update_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_colors.dart';
 import 'pin_setup_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _appVersion = '1.0.0';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _appVersion = info.version);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -250,7 +272,20 @@ class SettingsScreen extends StatelessWidget {
                           leading: Icon(Icons.info_outline_rounded,
                               color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
                           title: const Text('Money Tracker'),
-                          subtitle: const Text('Version 1.0.0'),
+                          subtitle: Text('Version $_appVersion'),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: Icon(Icons.system_update_rounded,
+                              color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
+                          title: const Text('Check for Updates'),
+                          subtitle: const Text('Download the latest version'),
+                          trailing: Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 14,
+                            color: theme.textTheme.bodySmall?.color,
+                          ),
+                          onTap: () => UpdateService.checkForUpdate(context),
                         ),
                         const Divider(height: 1),
                         ListTile(

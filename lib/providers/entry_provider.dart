@@ -180,22 +180,26 @@ class EntryProvider extends ChangeNotifier {
   }
 
   Future<void> markReceived(int id) async {
-    // Get entry first to check if recurring
     final entry = await _dbHelper.getEntry(id);
-    await _dbHelper.markAsReceived(id);
+    if (entry == null) return;
 
-    // If recurring, create next occurrence
-    if (entry != null && entry.isRecurring && entry.recurringType != null) {
+    if (entry.isRecurring && entry.recurringType != null) {
       final nextDate = entry.getNextRecurringDate();
       if (nextDate != null) {
-        final nextEntry = entry.copyWith(
-          id: null,
+        // Recurring with valid next date: advance the same entry's date
+        final updated = entry.copyWith(
           expectedDate: nextDate,
           isReceived: false,
           receivedDate: null,
         );
-        await _dbHelper.insertEntry(nextEntry);
+        await _dbHelper.updateEntry(updated);
+      } else {
+        // Recurring but expired (no more future dates): mark as received
+        await _dbHelper.markAsReceived(id);
       }
+    } else {
+      // Non-recurring: simply mark as received
+      await _dbHelper.markAsReceived(id);
     }
 
     await loadAll();
