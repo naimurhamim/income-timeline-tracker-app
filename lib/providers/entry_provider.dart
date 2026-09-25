@@ -185,17 +185,30 @@ class EntryProvider extends ChangeNotifier {
 
     if (entry.isRecurring && entry.recurringType != null) {
       final nextDate = entry.getNextRecurringDate();
+
+      // 1) Insert a received snapshot copy so it appears in the received list
+      final receivedCopy = entry.copyWith(
+        id: null, // new row
+        isRecurring: false,
+        recurringType: null,
+        recurringEndDate: null,
+        isReceived: true,
+        receivedDate: DateTime.now(),
+        parentId: entry.id, // link back to the recurring original
+      );
+      await _dbHelper.insertEntry(receivedCopy);
+
       if (nextDate != null) {
-        // Recurring with valid next date: advance the same entry's date
-        final updated = entry.copyWith(
+        // 2a) Advance the recurring entry to its next cycle
+        final advanced = entry.copyWith(
           expectedDate: nextDate,
           isReceived: false,
           receivedDate: null,
         );
-        await _dbHelper.updateEntry(updated);
+        await _dbHelper.updateEntry(advanced);
       } else {
-        // Recurring but expired (no more future dates): mark as received
-        await _dbHelper.markAsReceived(id);
+        // 2b) No more future cycles — delete the recurring entry
+        await _dbHelper.deleteEntry(id);
       }
     } else {
       // Non-recurring: simply mark as received
@@ -207,7 +220,28 @@ class EntryProvider extends ChangeNotifier {
   }
 
   Future<void> markUnreceived(int id) async {
-    await _dbHelper.markAsUnreceived(id);
+    final entry = await _dbHelper.getEntry(id);
+    if (entry == null) return;
+
+    if (entry.parentId != null) {
+      // This is a received snapshot of a recurring entry.
+      // Roll back the original recurring entry by one cycle.
+      final parent = await _dbHelper.getEntry(entry.parentId!);
+      if (parent != null) {
+        final rolledBack = parent.copyWith(
+          expectedDate: entry.expectedDate, // restore original due date
+          isReceived: false,
+          receivedDate: null,
+        );
+        await _dbHelper.updateEntry(rolledBack);
+      }
+      // Delete the snapshot — don't just mark unreceived (avoids duplicate)
+      await _dbHelper.deleteEntry(id);
+    } else {
+      // Regular non-recurring entry: simply un-mark received
+      await _dbHelper.markAsUnreceived(id);
+    }
+
     await loadAll();
     _rescheduleNotifications();
   }

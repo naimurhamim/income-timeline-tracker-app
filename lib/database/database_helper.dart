@@ -15,7 +15,7 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   static const String _dbName = 'money_tracker.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   // Table names
   static const String tableEntries = 'entries';
@@ -73,6 +73,7 @@ class DatabaseHelper {
         recurring_end_date TEXT,
         is_received INTEGER NOT NULL DEFAULT 0,
         received_date TEXT,
+        parent_id INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (category_id) REFERENCES $tableCategories(id) ON DELETE SET NULL
@@ -88,6 +89,9 @@ class DatabaseHelper {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE $tableEntries ADD COLUMN recurring_end_date TEXT');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE $tableEntries ADD COLUMN parent_id INTEGER');
     }
   }
 

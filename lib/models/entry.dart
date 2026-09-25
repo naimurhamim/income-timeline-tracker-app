@@ -12,6 +12,7 @@ class EntryModel {
   final DateTime? recurringEndDate;
   final bool isReceived;
   final DateTime? receivedDate;
+  final int? parentId; // ID of the recurring entry this received copy was created from
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -29,6 +30,7 @@ class EntryModel {
     this.recurringEndDate,
     this.isReceived = false,
     this.receivedDate,
+    this.parentId,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : createdAt = createdAt ?? DateTime.now(),
@@ -49,6 +51,7 @@ class EntryModel {
       'recurring_end_date': recurringEndDate?.toIso8601String(),
       'is_received': isReceived ? 1 : 0,
       'received_date': receivedDate?.toIso8601String(),
+      'parent_id': parentId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -73,42 +76,48 @@ class EntryModel {
       receivedDate: map['received_date'] != null
           ? DateTime.parse(map['received_date'] as String)
           : null,
+      parentId: map['parent_id'] as int?,
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
   }
 
+  /// Sentinel value to explicitly pass null to nullable fields in [copyWith].
+  static const _unset = Object();
+
   EntryModel copyWith({
-    int? id,
+    Object? id = _unset,
     String? title,
     double? amount,
     DateTime? expectedDate,
     String? type,
-    int? categoryId,
+    Object? categoryId = _unset,
     int? priority,
-    String? notes,
+    Object? notes = _unset,
     bool? isRecurring,
-    String? recurringType,
-    DateTime? recurringEndDate,
+    Object? recurringType = _unset,
+    Object? recurringEndDate = _unset,
     bool? isReceived,
-    DateTime? receivedDate,
+    Object? receivedDate = _unset,
+    Object? parentId = _unset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
     return EntryModel(
-      id: id ?? this.id,
+      id: id == _unset ? this.id : id as int?,
       title: title ?? this.title,
       amount: amount ?? this.amount,
       expectedDate: expectedDate ?? this.expectedDate,
       type: type ?? this.type,
-      categoryId: categoryId ?? this.categoryId,
+      categoryId: categoryId == _unset ? this.categoryId : categoryId as int?,
       priority: priority ?? this.priority,
-      notes: notes ?? this.notes,
+      notes: notes == _unset ? this.notes : notes as String?,
       isRecurring: isRecurring ?? this.isRecurring,
-      recurringType: recurringType ?? this.recurringType,
-      recurringEndDate: recurringEndDate ?? this.recurringEndDate,
+      recurringType: recurringType == _unset ? this.recurringType : recurringType as String?,
+      recurringEndDate: recurringEndDate == _unset ? this.recurringEndDate : recurringEndDate as DateTime?,
       isReceived: isReceived ?? this.isReceived,
-      receivedDate: receivedDate ?? this.receivedDate,
+      receivedDate: receivedDate == _unset ? this.receivedDate : receivedDate as DateTime?,
+      parentId: parentId == _unset ? this.parentId : parentId as int?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );
