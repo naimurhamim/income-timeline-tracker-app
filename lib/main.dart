@@ -6,6 +6,7 @@ import 'providers/entry_provider.dart';
 import 'providers/category_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/currency_provider.dart';
+import 'providers/notification_provider.dart';
 import 'screens/home_shell.dart';
 import 'screens/lock_screen.dart';
 import 'services/auth_service.dart';
@@ -35,6 +36,7 @@ class MoneyTrackerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => EntryProvider()),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => CurrencyProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
@@ -109,6 +111,8 @@ class _AppInitializerState extends State<AppInitializer>
       final entryProvider =
           Provider.of<EntryProvider>(context, listen: false);
       final authService = Provider.of<AuthService>(context, listen: false);
+      final notifProvider =
+          Provider.of<NotificationProvider>(context, listen: false);
 
       await categoryProvider.loadCategories();
       await entryProvider.loadAll();
@@ -116,7 +120,11 @@ class _AppInitializerState extends State<AppInitializer>
       // Initialize auth
       await authService.init();
 
-      // Initialize notifications
+      // Initialize in-app notification state
+      await notifProvider.init();
+      notifProvider.generateFromEntries(entryProvider.upcomingEntries);
+
+      // Initialize system notifications
       final notificationService = NotificationService();
       await notificationService.init();
 
@@ -126,7 +134,7 @@ class _AppInitializerState extends State<AppInitializer>
         await notificationService.requestPermission();
       }
 
-      // Schedule notifications for all upcoming entries
+      // Schedule system notifications for all upcoming entries
       await notificationService
           .scheduleAllEntryNotifications(entryProvider.upcomingEntries);
 

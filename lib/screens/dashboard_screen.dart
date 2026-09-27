@@ -1,9 +1,11 @@
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/entry.dart';
 import '../providers/entry_provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/notification_provider.dart';
 import '../theme/app_colors.dart';
 import '../widgets/blob_painter.dart';
 import '../widgets/entry_list_tile.dart';
@@ -47,6 +49,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     final isDark = theme.brightness == Brightness.dark;
     final entryProvider = context.watch<EntryProvider>();
     final themeProvider = context.watch<ThemeProvider>();
+    final notifProvider = context.watch<NotificationProvider>();
+
+    // Regenerate in-app notifications whenever entries change
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifProvider.generateFromEntries(entryProvider.upcomingEntries);
+    });
 
     return Scaffold(
       body: RefreshIndicator(
@@ -59,7 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             SliverPersistentHeader(
               pinned: true,
               delegate: _HeaderDelegate(
-                child: _buildHeader(theme, isDark, themeProvider, entryProvider),
+                child: _buildHeader(theme, isDark, themeProvider, entryProvider, notifProvider),
                 height: MediaQuery.of(context).padding.top + 100,
               ),
             ),
@@ -153,7 +161,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildHeader(ThemeData theme, bool isDark, ThemeProvider themeProvider,
-      EntryProvider entryProvider) {
+      EntryProvider entryProvider, NotificationProvider notifProvider) {
     return AnimatedBuilder(
       animation: _blobController,
       builder: (context, child) {
@@ -233,14 +241,23 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ),
                         ],
                       ),
-                      IconButton(
-                        onPressed: () => themeProvider.toggleTheme(),
-                        icon: Icon(
-                          isDark
-                              ? Icons.light_mode_rounded
-                              : Icons.dark_mode_rounded,
-                          color: Colors.white,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            onPressed: () => themeProvider.toggleTheme(),
+                            icon: Icon(
+                              isDark
+                                  ? Icons.light_mode_rounded
+                                  : Icons.dark_mode_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                          _NotificationBell(
+                            notifProvider: notifProvider,
+                            isDark: isDark,
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -316,6 +333,440 @@ class _DashboardScreenState extends State<DashboardScreen>
         ],
       ),
     );
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  Notification Bell + Glassmorphism Popup
+// ═══════════════════════════════════════════════════════
+
+class _NotificationBell extends StatefulWidget {
+  final NotificationProvider notifProvider;
+  final bool isDark;
+
+  const _NotificationBell({
+    required this.notifProvider,
+    required this.isDark,
+  });
+
+  @override
+  State<_NotificationBell> createState() => _NotificationBellState();
+}
+
+class _NotificationBellState extends State<_NotificationBell>
+    with SingleTickerProviderStateMixin {
+  OverlayEntry? _overlayEntry;
+  final _bellKey = GlobalKey();
+  late AnimationController _shakeController;
+
+  @override
+  void initState() {
+    super.initState();
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _NotificationBell old) {
+    super.didUpdateWidget(old);
+    if (widget.notifProvider.unseenCount > 0 &&
+        !_shakeController.isAnimating) {
+      _shakeController.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _removeOverlay();
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  void _togglePopup() {
+    if (_overlayEntry != null) {
+      _removeOverlay();
+    } else {
+      _showOverlay();
+    }
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _showOverlay() {
+    final renderBox =
+        _bellKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => _NotificationPopup(
+        anchorX: offset.dx + size.width / 2,
+        anchorY: offset.dy + size.height + 4,
+        isDark: widget.isDark,
+        notifProvider: widget.notifProvider,
+        onDismiss: _removeOverlay,
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = widget.notifProvider.unseenCount;
+
+    return AnimatedBuilder(
+      animation: _shakeController,
+      builder: (context, child) {
+        final angle = sin(_shakeController.value * pi * 4) * 0.15;
+        return Transform.rotate(angle: angle, child: child);
+      },
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          IconButton(
+            key: _bellKey,
+            onPressed: _togglePopup,
+            icon: Icon(
+              count > 0
+                  ? Icons.notifications_active_rounded
+                  : Icons.notifications_none_rounded,
+              color: Colors.white,
+            ),
+          ),
+          if (count > 0)
+            Positioned(
+              right: 4,
+              top: 4,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                decoration: BoxDecoration(
+                  color: AppColors.error,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.error.withValues(alpha: 0.4),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  count > 9 ? '9+' : '$count',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  Glassmorphism Notification Popup
+// ═══════════════════════════════════════════════════════
+
+class _NotificationPopup extends StatelessWidget {
+  final double anchorX;
+  final double anchorY;
+  final bool isDark;
+  final NotificationProvider notifProvider;
+  final VoidCallback onDismiss;
+
+  const _NotificationPopup({
+    required this.anchorX,
+    required this.anchorY,
+    required this.isDark,
+    required this.notifProvider,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final popupWidth = screenWidth - 32.0;
+    // Position popup centered horizontally or aligned to right
+    final left = (screenWidth - popupWidth) / 2;
+
+    return Stack(
+      children: [
+        // Dismiss area
+        GestureDetector(
+          onTap: onDismiss,
+          behavior: HitTestBehavior.opaque,
+          child: const SizedBox.expand(),
+        ),
+        Positioned(
+          left: left,
+          top: anchorY,
+          width: popupWidth,
+          child: Material(
+            color: Colors.transparent,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 380),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.white.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.white.withValues(alpha: 0.5),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Header
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.notifications_rounded,
+                              size: 18,
+                              color: isDark
+                                  ? AppColors.accentLime
+                                  : AppColors.primaryTeal,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Notifications',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : AppColors.primaryTealDark,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (notifProvider.unseenCount > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accentLime.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${notifProvider.unseenCount} new',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? AppColors.accentLime
+                                        : AppColors.primaryTeal,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Divider(
+                        height: 1,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.06),
+                      ),
+                      // Body
+                      if (notifProvider.items.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 32),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.notifications_off_rounded,
+                                size: 36,
+                                color: isDark
+                                    ? Colors.white38
+                                    : Colors.black26,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'All clear! No upcoming reminders.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.black45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Flexible(
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            itemCount: notifProvider.items.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 6),
+                            itemBuilder: (_, i) {
+                              final item = notifProvider.items[i];
+                              final isRead = notifProvider.isRead(item);
+                              return _NotificationTile(
+                                item: item,
+                                isRead: isRead,
+                                isDark: isDark,
+                              );
+                            },
+                          ),
+                        ),
+                      // Footer — Mark all read
+                      if (notifProvider.unseenCount > 0) ...[
+                        Divider(
+                          height: 1,
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : Colors.black.withValues(alpha: 0.06),
+                        ),
+                        InkWell(
+                          onTap: () {
+                            notifProvider.markAllRead();
+                            onDismiss();
+                          },
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(20),
+                            bottomRight: Radius.circular(20),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Center(
+                              child: Text(
+                                'Mark all as read',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark
+                                      ? AppColors.accentLime
+                                      : AppColors.primaryTeal,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NotificationTile extends StatelessWidget {
+  final NotificationItem item;
+  final bool isRead;
+  final bool isDark;
+
+  const _NotificationTile({
+    required this.item,
+    required this.isRead,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = _typeColor(item.type);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isRead
+            ? Colors.transparent
+            : (isDark
+                ? accentColor.withValues(alpha: 0.08)
+                : accentColor.withValues(alpha: 0.06)),
+        borderRadius: BorderRadius.circular(12),
+        border: isRead
+            ? null
+            : Border.all(
+                color: accentColor.withValues(alpha: isDark ? 0.2 : 0.15)),
+      ),
+      child: Row(
+        children: [
+          Icon(item.icon, size: 22, color: accentColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isRead ? FontWeight.w500 : FontWeight.w700,
+                    color: isDark ? Colors.white : AppColors.primaryTealDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  item.body,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (!isRead)
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accentColor,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Color _typeColor(String type) {
+    switch (type) {
+      case 'overdue':
+        return AppColors.error;
+      case 'today':
+        return AppColors.success;
+      case '3day':
+        return AppColors.warning;
+      case '7day':
+        return AppColors.info;
+      default:
+        return AppColors.primaryTeal;
+    }
   }
 }
 

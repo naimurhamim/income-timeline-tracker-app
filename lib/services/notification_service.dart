@@ -76,12 +76,20 @@ class NotificationService {
     await _plugin.cancelAll();
 
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
     for (final entry in entries) {
       if (entry.isReceived) continue;
-      if (entry.expectedDate.isBefore(now)) continue;
 
-      final daysLeft = entry.expectedDate.difference(now).inDays;
+      // Compare date-only (ignore time) so today's entries are not skipped
+      final dueDate = DateTime(
+        entry.expectedDate.year,
+        entry.expectedDate.month,
+        entry.expectedDate.day,
+      );
+      if (dueDate.isBefore(today)) continue;
+
+      final daysLeft = dueDate.difference(today).inDays;
 
       // Schedule 7 days before
       if (daysLeft >= 7) {
