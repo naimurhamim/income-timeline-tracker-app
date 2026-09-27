@@ -7,6 +7,7 @@ import '../providers/currency_provider.dart';
 import '../services/auth_service.dart';
 import '../services/update_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
 import 'pin_setup_screen.dart';
 
@@ -309,6 +310,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
 
+                  const SizedBox(height: 24),
+
+                  // ─── Developer ───
+                  Text('Developer', style: theme.textTheme.headlineMedium),
+                  const SizedBox(height: 12),
+                  _buildSettingCard(
+                    theme: theme,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 30,
+                                backgroundImage: const AssetImage('assets/images/Naimur_Hamim.jpg'),
+                                backgroundColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'MD Naimur Rashid',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Creator',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: isDark ? Colors.white60 : Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _buildDevLink(
+                                icon: Icons.language_rounded,
+                                label: 'Website',
+                                url: 'https://naimurrashid.dev/',
+                                isDark: isDark,
+                              ),
+                              _buildDevLink(
+                                icon: Icons.code_rounded,
+                                label: 'GitHub',
+                                url: 'https://github.com/naimurhamim',
+                                isDark: isDark,
+                              ),
+                              _buildDevLink(
+                                icon: Icons.work_outline_rounded,
+                                label: 'LinkedIn',
+                                url: 'https://www.linkedin.com/in/md-naimur-rashid/',
+                                isDark: isDark,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                   const SizedBox(height: 40),
                 ],
               ),
@@ -434,6 +507,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: child,
+      ),
+    );
+  }
+
+  Widget _buildDevLink({
+    required IconData icon,
+    required String label,
+    required String url,
+    required bool isDark,
+  }) {
+    return InkWell(
+      onTap: () async {
+        final uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 24,
+              color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
