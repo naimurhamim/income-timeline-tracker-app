@@ -95,7 +95,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     entry: entryProvider.upcomingEntries.first,
                     onTap: () => _openDetail(entryProvider.upcomingEntries.first),
                     onMarkReceived: () => _confirmReceived(
-                        entryProvider, entryProvider.upcomingEntries.first.id!),
+                        entryProvider, entryProvider.upcomingEntries.first.id),
                   ).animate().fade(duration: 500.ms).scale(begin: const Offset(0.95, 0.95), end: const Offset(1, 1), curve: Curves.easeOutBack),
 
                 ),
@@ -129,7 +129,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           entry: entry,
                           onTap: () => _openDetail(entry),
                           onMarkReceived: () =>
-                              _confirmReceived(entryProvider, entry.id!),
+                              _confirmReceived(entryProvider, entry.id),
                         ).animate().fade(delay: (index * 50).ms, duration: 400.ms).slideY(begin: 0.2, end: 0, curve: Curves.easeOutQuad),
 
                       );
@@ -304,12 +304,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => EntryDetailScreen(entryId: entry.id!),
+        builder: (_) => EntryDetailScreen(entryId: entry.id),
       ),
     );
   }
 
-  void _confirmReceived(EntryProvider provider, int id) {
+  void _confirmReceived(EntryProvider provider, String id) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

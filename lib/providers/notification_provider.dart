@@ -4,7 +4,7 @@ import '../models/entry.dart';
 
 /// A single in-app notification item shown in the bell popup.
 class NotificationItem {
-  final int entryId;
+  final String entryId;
   final String title;
   final String body;
   final IconData icon;
@@ -61,7 +61,7 @@ class NotificationProvider extends ChangeNotifier {
       if (daysLeft < 0) {
         // Overdue
         newItems.add(NotificationItem(
-          entryId: entry.id ?? 0,
+          entryId: entry.id,
           title: entry.title,
           body: '$amountStr was due ${-daysLeft} day${-daysLeft == 1 ? '' : 's'} ago',
           icon: Icons.warning_amber_rounded,
@@ -71,7 +71,7 @@ class NotificationProvider extends ChangeNotifier {
       } else if (daysLeft == 0) {
         // Due today
         newItems.add(NotificationItem(
-          entryId: entry.id ?? 0,
+          entryId: entry.id,
           title: entry.title,
           body: '$amountStr is expected today!',
           icon: Icons.account_balance_wallet_rounded,
@@ -81,7 +81,7 @@ class NotificationProvider extends ChangeNotifier {
       } else if (daysLeft <= 3) {
         // Due in 1-3 days
         newItems.add(NotificationItem(
-          entryId: entry.id ?? 0,
+          entryId: entry.id,
           title: entry.title,
           body: '$amountStr due in $daysLeft day${daysLeft == 1 ? '' : 's'}',
           icon: Icons.schedule_rounded,
@@ -91,7 +91,7 @@ class NotificationProvider extends ChangeNotifier {
       } else if (daysLeft <= 7) {
         // Due in 4-7 days
         newItems.add(NotificationItem(
-          entryId: entry.id ?? 0,
+          entryId: entry.id,
           title: entry.title,
           body: '$amountStr due in $daysLeft days',
           icon: Icons.event_note_rounded,

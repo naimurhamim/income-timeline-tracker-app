@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../data/cloud_repository.dart';
+import '../data/data_repository.dart';
 
 class CurrencyProvider extends ChangeNotifier {
   static const _key = 'currency_code';
@@ -18,7 +20,8 @@ class CurrencyProvider extends ChangeNotifier {
   String _code = 'BDT';
 
   CurrencyProvider() {
-    _loadFromPrefs();
+    DataStore.instance.addListener(_syncWithCloud);
+    _loadFromPrefs().then((_) => _syncWithCloud());
   }
 
   String get code => _code;
@@ -60,9 +63,41 @@ class CurrencyProvider extends ChangeNotifier {
 
   Future<void> setCurrency(String code) async {
     if (_code == code) return;
+    await _apply(code);
+    final repo = DataStore.instance.repo;
+    if (repo is CloudRepository) {
+      await repo.saveCurrency(code);
+    }
+  }
+
+  Future<void> _apply(String code) async {
     _code = code;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, code);
+  }
+
+  /// When signed in: use the currency saved in the account, or upload the
+  /// current one if the account has none yet.
+  Future<void> _syncWithCloud() async {
+    final repo = DataStore.instance.repo;
+    if (repo is! CloudRepository) return;
+    try {
+      final cloudCode = await repo.getCurrency();
+      if (!identical(repo, DataStore.instance.repo)) return;
+      if (cloudCode != null && currencies.any((c) => c['code'] == cloudCode)) {
+        if (cloudCode != _code) await _apply(cloudCode);
+      } else {
+        await repo.saveCurrency(_code);
+      }
+    } catch (e) {
+      debugPrint('Currency sync failed: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    DataStore.instance.removeListener(_syncWithCloud);
+    super.dispose();
   }
 }

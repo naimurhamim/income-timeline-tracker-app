@@ -313,9 +313,9 @@ class EntriesScreenState extends State<EntriesScreen>
               SlidableAction(
                 onPressed: (_) {
                   if (entry.isReceived) {
-                    provider.markUnreceived(entry.id!);
+                    provider.markUnreceived(entry.id);
                   } else {
-                    provider.markReceived(entry.id!);
+                    provider.markReceived(entry.id);
                   }
                 },
                 backgroundColor: AppColors.success,
@@ -347,7 +347,7 @@ class EntriesScreenState extends State<EntriesScreen>
                 borderRadius: BorderRadius.circular(12),
               ),
               SlidableAction(
-                onPressed: (_) => _confirmDelete(provider, entry.id!),
+                onPressed: (_) => _confirmDelete(provider, entry.id),
                 backgroundColor: AppColors.error,
                 foregroundColor: Colors.white,
                 icon: Icons.delete_rounded,
@@ -361,7 +361,7 @@ class EntriesScreenState extends State<EntriesScreen>
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => EntryDetailScreen(entryId: entry.id!),
+                builder: (_) => EntryDetailScreen(entryId: entry.id),
               ),
             ),
           ),
@@ -370,7 +370,7 @@ class EntriesScreenState extends State<EntriesScreen>
     );
   }
 
-  void _confirmDelete(EntryProvider provider, int id) {
+  void _confirmDelete(EntryProvider provider, String id) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

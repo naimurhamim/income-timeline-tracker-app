@@ -8,7 +8,7 @@ import '../theme/app_colors.dart';
 import 'add_entry_screen.dart';
 
 class EntryDetailScreen extends StatelessWidget {
-  final int entryId;
+  final String entryId;
 
   const EntryDetailScreen({super.key, required this.entryId});
 
@@ -309,7 +309,7 @@ class EntryDetailScreen extends StatelessWidget {
         height: 56,
         child: OutlinedButton.icon(
           onPressed: () {
-            provider.markUnreceived(entry.id!);
+            provider.markUnreceived(entry.id);
             Navigator.pop(context);
           },
           icon: const Icon(Icons.undo_rounded),
@@ -329,7 +329,7 @@ class EntryDetailScreen extends StatelessWidget {
       height: 56,
       child: ElevatedButton.icon(
         onPressed: () {
-          provider.markReceived(entry.id!);
+          provider.markReceived(entry.id);
           Navigator.pop(context);
         },
         icon: const Icon(Icons.check_rounded),
@@ -381,7 +381,7 @@ class EntryDetailScreen extends StatelessWidget {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              context.read<EntryProvider>().deleteEntry(entry.id!);
+              context.read<EntryProvider>().deleteEntry(entry.id);
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(

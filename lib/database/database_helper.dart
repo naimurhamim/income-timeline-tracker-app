@@ -3,10 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:uuid/uuid.dart';
+import '../data/data_repository.dart';
 import '../models/entry.dart';
 import '../models/category.dart';
 
-class DatabaseHelper {
+/// Local SQLite storage, used in guest mode (not signed in).
+class DatabaseHelper implements DataRepository {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
 
@@ -15,11 +18,15 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   static const String _dbName = 'money_tracker.db';
-  static const int _dbVersion = 3;
+  static const String _backupBeforeV4 = 'money_tracker_backup_v3.db';
+  static const int _dbVersion = 4;
 
   // Table names
   static const String tableEntries = 'entries';
   static const String tableCategories = 'categories';
+
+  @override
+  bool get isCloud => false;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -37,6 +44,8 @@ class DatabaseHelper {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     final path = join(documentsDirectory.path, _dbName);
 
+    await _backupIfUpgradingToV4(path, documentsDirectory.path);
+
     return await openDatabase(
       path,
       version: _dbVersion,
@@ -45,11 +54,35 @@ class DatabaseHelper {
     );
   }
 
-  Future<void> _onCreate(Database db, int version) async {
-    // Create categories table
+  /// Keeps a copy of the old database file before the ID format migration,
+  /// so user data can always be recovered if something goes wrong.
+  Future<void> _backupIfUpgradingToV4(String path, String dir) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return;
+
+      final probe = await openDatabase(path, readOnly: true);
+      final version = await probe.getVersion();
+      await probe.close();
+
+      if (version > 0 && version < 4) {
+        final backup = File(join(dir, _backupBeforeV4));
+        if (!await backup.exists()) {
+          await file.copy(backup.path);
+          debugPrint('Database backup created at ${backup.path}');
+        }
+      }
+    } catch (e) {
+      debugPrint('Database backup skipped: $e');
+    }
+  }
+
+  Future<void> _createTables(DatabaseExecutor db,
+      {String entries = tableEntries,
+      String categories = tableCategories}) async {
     await db.execute('''
-      CREATE TABLE $tableCategories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+      CREATE TABLE $categories (
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         icon TEXT NOT NULL DEFAULT 'category',
         color TEXT NOT NULL DEFAULT '#1B3A4B',
@@ -57,15 +90,14 @@ class DatabaseHelper {
       )
     ''');
 
-    // Create entries table
     await db.execute('''
-      CREATE TABLE $tableEntries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+      CREATE TABLE $entries (
+        id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         amount REAL NOT NULL,
         expected_date TEXT NOT NULL,
         type TEXT NOT NULL,
-        category_id INTEGER,
+        category_id TEXT,
         priority INTEGER NOT NULL DEFAULT 2,
         notes TEXT,
         is_recurring INTEGER NOT NULL DEFAULT 0,
@@ -73,17 +105,26 @@ class DatabaseHelper {
         recurring_end_date TEXT,
         is_received INTEGER NOT NULL DEFAULT 0,
         received_date TEXT,
-        parent_id INTEGER,
+        parent_id TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (category_id) REFERENCES $tableCategories(id) ON DELETE SET NULL
+        updated_at TEXT NOT NULL
       )
     ''');
+  }
 
-    // Insert default categories
+  Future<void> _insertDefaultCategories(DatabaseExecutor db) async {
     for (final category in CategoryModel.defaultCategories) {
-      await db.insert(tableCategories, category.toMap()..remove('id'));
+      await db.insert(
+        tableCategories,
+        category.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
     }
+  }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await _createTables(db);
+    await _insertDefaultCategories(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -93,227 +134,167 @@ class DatabaseHelper {
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE $tableEntries ADD COLUMN parent_id INTEGER');
     }
+    if (oldVersion < 4) {
+      await _migrateToStringIds(db);
+    }
+  }
+
+  /// v4: converts integer IDs to string IDs (UUIDs) so data can be merged
+  /// across devices. Runs inside the upgrade transaction, so any failure
+  /// rolls back and leaves the old data untouched.
+  Future<void> _migrateToStringIds(Database db) async {
+    const uuid = Uuid();
+    const newEntries = 'entries_v4';
+    const newCategories = 'categories_v4';
+
+    await _createTables(db, entries: newEntries, categories: newCategories);
+
+    // Categories: built-in names get fixed IDs, custom ones get UUIDs.
+    final categoryIdMap = <String, String>{};
+    final oldCategories = await db.query(tableCategories);
+    for (final row in oldCategories) {
+      final name = row['name'] as String;
+      final newId = CategoryModel.defaultIdForName(name) ?? uuid.v4();
+      categoryIdMap[row['id'].toString()] = newId;
+      await db.insert(
+        newCategories,
+        {
+          'id': newId,
+          'name': name,
+          'icon': row['icon'] ?? 'category',
+          'color': row['color'] ?? '#1B3A4B',
+          'created_at': row['created_at'] ?? DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+
+    // Entries: assign UUIDs first so parent links can be remapped.
+    final oldEntries = await db.query(tableEntries);
+    final entryIdMap = <String, String>{
+      for (final row in oldEntries) row['id'].toString(): uuid.v4(),
+    };
+
+    for (final row in oldEntries) {
+      final map = Map<String, dynamic>.from(row);
+      map['id'] = entryIdMap[row['id'].toString()];
+      final oldCat = row['category_id'];
+      map['category_id'] = oldCat == null ? null : categoryIdMap[oldCat.toString()];
+      final oldParent = row['parent_id'];
+      map['parent_id'] = oldParent == null ? null : entryIdMap[oldParent.toString()];
+      await db.insert(newEntries, map);
+    }
+
+    await db.execute('DROP TABLE $tableEntries');
+    await db.execute('DROP TABLE $tableCategories');
+    await db.execute('ALTER TABLE $newEntries RENAME TO $tableEntries');
+    await db.execute('ALTER TABLE $newCategories RENAME TO $tableCategories');
+
+    // Make sure built-in categories always exist.
+    await _insertDefaultCategories(db);
   }
 
   // ═══════════════════════════════════
-  // ENTRY CRUD Operations
+  // ENTRY Operations
   // ═══════════════════════════════════
 
-  Future<int> insertEntry(EntryModel entry) async {
+  @override
+  Future<List<EntryModel>> getEntries({bool preferServer = false}) async {
     final db = await database;
-    final map = entry.toMap()..remove('id');
-    return await db.insert(tableEntries, map);
+    final maps = await db.query(tableEntries, orderBy: 'expected_date ASC');
+    return maps.map((map) => EntryModel.fromMap(map)).toList();
   }
 
-  Future<int> updateEntry(EntryModel entry) async {
+  @override
+  Future<void> saveEntry(EntryModel entry) async {
     final db = await database;
-    return await db.update(
+    await db.insert(
       tableEntries,
       entry.toMap(),
-      where: 'id = ?',
-      whereArgs: [entry.id],
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  Future<int> deleteEntry(int id) async {
+  @override
+  Future<void> deleteEntry(String id) async {
     final db = await database;
-    return await db.delete(tableEntries, where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<EntryModel?> getEntry(int id) async {
-    final db = await database;
-    final maps = await db.query(
-      tableEntries,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (maps.isNotEmpty) {
-      return EntryModel.fromMap(maps.first);
-    }
-    return null;
-  }
-
-  Future<List<EntryModel>> getAllEntries({
-    bool? isReceived,
-    String? type,
-    String? searchQuery,
-    String orderBy = 'expected_date ASC',
-  }) async {
-    final db = await database;
-
-    String? where;
-    List<dynamic>? whereArgs;
-
-    final conditions = <String>[];
-    final args = <dynamic>[];
-
-    if (isReceived != null) {
-      conditions.add('is_received = ?');
-      args.add(isReceived ? 1 : 0);
-    }
-
-    if (type != null && type.isNotEmpty) {
-      conditions.add('type = ?');
-      args.add(type);
-    }
-
-    if (searchQuery != null && searchQuery.isNotEmpty) {
-      conditions.add('(title LIKE ? OR notes LIKE ?)');
-      args.add('%$searchQuery%');
-      args.add('%$searchQuery%');
-    }
-
-    if (conditions.isNotEmpty) {
-      where = conditions.join(' AND ');
-      whereArgs = args;
-    }
-
-    final maps = await db.query(
-      tableEntries,
-      where: where,
-      whereArgs: whereArgs,
-      orderBy: orderBy,
-    );
-
-    return maps.map((map) => EntryModel.fromMap(map)).toList();
-  }
-
-  Future<List<EntryModel>> getUpcomingEntries({int? limit}) async {
-    final db = await database;
-    final maps = await db.query(
-      tableEntries,
-      where: 'is_received = 0',
-      orderBy: 'expected_date ASC',
-      limit: limit,
-    );
-    return maps.map((map) => EntryModel.fromMap(map)).toList();
-  }
-
-  Future<int> markAsReceived(int id) async {
-    final db = await database;
-    return await db.update(
-      tableEntries,
-      {
-        'is_received': 1,
-        'received_date': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<int> markAsUnreceived(int id) async {
-    final db = await database;
-    return await db.update(
-      tableEntries,
-      {
-        'is_received': 0,
-        'received_date': null,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(tableEntries, where: 'id = ?', whereArgs: [id]);
   }
 
   // ═══════════════════════════════════
-  // SUMMARY Queries
+  // CATEGORY Operations
   // ═══════════════════════════════════
 
-  Future<double> getTotalUpcomingAmount() async {
-    final db = await database;
-    final result = await db.rawQuery(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM $tableEntries WHERE is_received = 0',
-    );
-    return (result.first['total'] as num).toDouble();
-  }
-
-  Future<double> getTotalReceivedAmount() async {
-    final db = await database;
-    final result = await db.rawQuery(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM $tableEntries WHERE is_received = 1',
-    );
-    return (result.first['total'] as num).toDouble();
-  }
-
-  Future<double> getTotalAllAmount() async {
-    final db = await database;
-    final result = await db.rawQuery(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM $tableEntries',
-    );
-    return (result.first['total'] as num).toDouble();
-  }
-
-  Future<double> getYearlyTotal(int year) async {
-    final db = await database;
-    final startDate = DateTime(year, 1, 1).toIso8601String();
-    final endDate = DateTime(year, 12, 31, 23, 59, 59).toIso8601String();
-    final result = await db.rawQuery(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM $tableEntries WHERE expected_date >= ? AND expected_date <= ?',
-      [startDate, endDate],
-    );
-    return (result.first['total'] as num).toDouble();
-  }
-
-  Future<double> getMonthlyTotal(int year, int month) async {
-    final db = await database;
-    final startDate = DateTime(year, month, 1).toIso8601String();
-    final endDate =
-        DateTime(year, month + 1, 0, 23, 59, 59).toIso8601String();
-    final result = await db.rawQuery(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM $tableEntries WHERE expected_date >= ? AND expected_date <= ?',
-      [startDate, endDate],
-    );
-    return (result.first['total'] as num).toDouble();
-  }
-
-
-
-
-
-  // ═══════════════════════════════════
-  // CATEGORY CRUD Operations
-  // ═══════════════════════════════════
-
-  Future<int> insertCategory(CategoryModel category) async {
-    final db = await database;
-    final map = category.toMap()..remove('id');
-    return await db.insert(tableCategories, map);
-  }
-
-  Future<int> updateCategory(CategoryModel category) async {
-    final db = await database;
-    return await db.update(
-      tableCategories,
-      category.toMap(),
-      where: 'id = ?',
-      whereArgs: [category.id],
-    );
-  }
-
-  Future<int> deleteCategory(int id) async {
-    final db = await database;
-    return await db.delete(tableCategories, where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<List<CategoryModel>> getAllCategories() async {
+  @override
+  Future<List<CategoryModel>> getCategories({bool preferServer = false}) async {
     final db = await database;
     final maps = await db.query(tableCategories, orderBy: 'name ASC');
     return maps.map((map) => CategoryModel.fromMap(map)).toList();
   }
 
-  Future<CategoryModel?> getCategory(int id) async {
+  @override
+  Future<void> saveCategory(CategoryModel category) async {
     final db = await database;
-    final maps = await db.query(
+    await db.insert(
       tableCategories,
-      where: 'id = ?',
-      whereArgs: [id],
+      category.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    if (maps.isNotEmpty) {
-      return CategoryModel.fromMap(maps.first);
-    }
-    return null;
+  }
+
+  @override
+  Future<void> deleteCategory(String id) async {
+    final db = await database;
+    await db.delete(tableCategories, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ═══════════════════════════════════
+  // Bulk Operations
+  // ═══════════════════════════════════
+
+  @override
+  Future<void> saveAll({
+    List<CategoryModel> categories = const [],
+    List<EntryModel> entries = const [],
+    bool waitForServer = false,
+    void Function(int done, int total)? onProgress,
+  }) async {
+    final db = await database;
+    final total = categories.length + entries.length;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final c in categories) {
+        batch.insert(tableCategories, c.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final e in entries) {
+        batch.insert(tableEntries, e.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+    onProgress?.call(total, total);
+  }
+
+  @override
+  Future<void> clearAll({bool waitForServer = false}) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete(tableEntries);
+      await txn.delete(tableCategories);
+      await _insertDefaultCategories(txn);
+    });
+  }
+
+  /// Number of entries plus custom categories stored locally.
+  Future<({int entries, int customCategories})> countLocalData() async {
+    final db = await database;
+    int firstInt(List<Map<String, Object?>> rows) =>
+        rows.isEmpty ? 0 : ((rows.first.values.first as num?)?.toInt() ?? 0);
+    final e = firstInt(await db.rawQuery('SELECT COUNT(*) FROM $tableEntries'));
+    final c = firstInt(await db.rawQuery(
+        "SELECT COUNT(*) FROM $tableCategories WHERE id NOT LIKE '${CategoryModel.defaultIdPrefix}%'"));
+    return (entries: e, customCategories: c);
   }
 
   // ═══════════════════════════════════

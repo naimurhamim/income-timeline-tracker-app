@@ -1,10 +1,17 @@
 import 'package:flutter/foundation.dart';
-import '../database/database_helper.dart';
+import '../data/data_repository.dart';
 import '../models/entry.dart';
 import '../services/notification_service.dart';
 
 class EntryProvider extends ChangeNotifier {
-  final DatabaseHelper _dbHelper = DatabaseHelper();
+  EntryProvider() {
+    DataStore.instance.addListener(_onRepositoryChanged);
+  }
+
+  DataRepository get _repo => DataStore.instance.repo;
+
+  /// Every entry from storage, sorted by expected date.
+  List<EntryModel> _all = [];
 
   List<EntryModel> _entries = [];
   List<EntryModel> _upcomingEntries = [];
@@ -16,6 +23,9 @@ class EntryProvider extends ChangeNotifier {
   String? _searchQuery;
   String? _filterType;
 
+  /// Called after the entry list changes (used to refresh in-app alerts).
+  void Function(List<EntryModel> upcoming)? onEntriesChanged;
+
   // Getters
   List<EntryModel> get entries => _entries;
   List<EntryModel> get upcomingEntries => _upcomingEntries;
@@ -23,6 +33,10 @@ class EntryProvider extends ChangeNotifier {
   double get totalUpcoming => _totalUpcoming;
   double get totalReceived => _totalReceived;
   double get totalAll => _totalAll;
+
+  /// All upcoming entries ignoring search and filter.
+  List<EntryModel> get allUpcoming =>
+      _all.where((e) => !e.isReceived).toList();
 
   double get estimatedNext3MonthsTotal {
     final now = DateTime.now();
@@ -89,8 +103,6 @@ class EntryProvider extends ChangeNotifier {
         .fold(0.0, (sum, e) => sum + e.amount);
   }
 
-
-  
   double get thisMonthRemaining {
     final now = DateTime.now();
     return _upcomingEntries
@@ -115,72 +127,94 @@ class EntryProvider extends ChangeNotifier {
   EntryModel? get nextUpcoming =>
       _upcomingEntries.isNotEmpty ? _upcomingEntries.first : null;
 
-  Future<void> loadAll() async {
+  EntryModel? getById(String id) {
+    for (final e in _all) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
+
+  void _onRepositoryChanged() {
+    _searchQuery = null;
+    _filterType = null;
+    loadAll(preferServer: true);
+  }
+
+  Future<void> loadAll({bool preferServer = false}) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      await Future.wait([
-        _loadEntries(),
-        _loadUpcoming(),
-        _loadReceived(),
-        _loadTotals(),
-      ]);
+      final repo = _repo;
+      _all = await repo.getEntries();
+      _applyFilters();
+
+      // For cloud storage: show cached data instantly, then refresh from
+      // the server in the background.
+      if (repo.isCloud && preferServer) {
+        repo.getEntries(preferServer: true).then((fresh) {
+          if (!identical(repo, _repo)) return;
+          _all = fresh;
+          _applyFilters();
+          notifyListeners();
+          _afterChange();
+        }).catchError((Object e) {
+          debugPrint('Background refresh failed: $e');
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load entries: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> _loadEntries() async {
-    _entries = await _dbHelper.getAllEntries(
-      searchQuery: _searchQuery,
-      type: _filterType,
-    );
-  }
+  /// Rebuilds the derived lists and totals from [_all] in memory.
+  void _applyFilters() {
+    final query = _searchQuery?.toLowerCase();
+    bool matches(EntryModel e) {
+      if (_filterType != null && _filterType!.isNotEmpty && e.type != _filterType) {
+        return false;
+      }
+      if (query != null && query.isNotEmpty) {
+        final inTitle = e.title.toLowerCase().contains(query);
+        final inNotes = (e.notes ?? '').toLowerCase().contains(query);
+        if (!inTitle && !inNotes) return false;
+      }
+      return true;
+    }
 
-  Future<void> _loadUpcoming() async {
-    _upcomingEntries = await _dbHelper.getAllEntries(
-      isReceived: false,
-      searchQuery: _searchQuery,
-      type: _filterType,
-    );
-  }
+    _entries = _all.where(matches).toList();
+    _upcomingEntries = _entries.where((e) => !e.isReceived).toList();
+    _receivedEntries = _entries.where((e) => e.isReceived).toList();
 
-  Future<void> _loadReceived() async {
-    _receivedEntries = await _dbHelper.getAllEntries(
-      isReceived: true,
-      searchQuery: _searchQuery,
-      type: _filterType,
-    );
-  }
-
-  Future<void> _loadTotals() async {
-    _totalUpcoming = await _dbHelper.getTotalUpcomingAmount();
-    _totalReceived = await _dbHelper.getTotalReceivedAmount();
-    _totalAll = await _dbHelper.getTotalAllAmount();
+    _totalUpcoming = _all
+        .where((e) => !e.isReceived)
+        .fold(0.0, (sum, e) => sum + e.amount);
+    _totalReceived = _all
+        .where((e) => e.isReceived)
+        .fold(0.0, (sum, e) => sum + e.amount);
+    _totalAll = _all.fold(0.0, (sum, e) => sum + e.amount);
   }
 
   Future<void> addEntry(EntryModel entry) async {
-    await _dbHelper.insertEntry(entry);
-    await loadAll();
-    _rescheduleNotifications();
+    await _repo.saveEntry(entry);
+    await _reloadAfterWrite();
   }
 
   Future<void> updateEntry(EntryModel entry) async {
-    await _dbHelper.updateEntry(entry);
-    await loadAll();
-    _rescheduleNotifications();
+    await _repo.saveEntry(entry);
+    await _reloadAfterWrite();
   }
 
-  Future<void> deleteEntry(int id) async {
-    await _dbHelper.deleteEntry(id);
-    await loadAll();
-    _rescheduleNotifications();
+  Future<void> deleteEntry(String id) async {
+    await _repo.deleteEntry(id);
+    await _reloadAfterWrite();
   }
 
-  Future<void> markReceived(int id) async {
-    final entry = await _dbHelper.getEntry(id);
+  Future<void> markReceived(String id) async {
+    final entry = getById(id);
     if (entry == null) return;
 
     if (entry.isRecurring && entry.recurringType != null) {
@@ -188,7 +222,7 @@ class EntryProvider extends ChangeNotifier {
 
       // 1) Insert a received snapshot copy so it appears in the received list
       final receivedCopy = entry.copyWith(
-        id: null, // new row
+        id: EntryModel.newId(), // new record
         isRecurring: false,
         recurringType: null,
         recurringEndDate: null,
@@ -196,7 +230,7 @@ class EntryProvider extends ChangeNotifier {
         receivedDate: DateTime.now(),
         parentId: entry.id, // link back to the recurring original
       );
-      await _dbHelper.insertEntry(receivedCopy);
+      await _repo.saveEntry(receivedCopy);
 
       if (nextDate != null) {
         // 2a) Advance the recurring entry to its next cycle
@@ -205,64 +239,84 @@ class EntryProvider extends ChangeNotifier {
           isReceived: false,
           receivedDate: null,
         );
-        await _dbHelper.updateEntry(advanced);
+        await _repo.saveEntry(advanced);
       } else {
         // 2b) No more future cycles — delete the recurring entry
-        await _dbHelper.deleteEntry(id);
+        await _repo.deleteEntry(id);
       }
     } else {
       // Non-recurring: simply mark as received
-      await _dbHelper.markAsReceived(id);
+      await _repo.saveEntry(entry.copyWith(
+        isReceived: true,
+        receivedDate: DateTime.now(),
+      ));
     }
 
-    await loadAll();
-    _rescheduleNotifications();
+    await _reloadAfterWrite();
   }
 
-  Future<void> markUnreceived(int id) async {
-    final entry = await _dbHelper.getEntry(id);
+  Future<void> markUnreceived(String id) async {
+    final entry = getById(id);
     if (entry == null) return;
 
     if (entry.parentId != null) {
       // This is a received snapshot of a recurring entry.
       // Roll back the original recurring entry by one cycle.
-      final parent = await _dbHelper.getEntry(entry.parentId!);
+      final parent = getById(entry.parentId!);
       if (parent != null) {
         final rolledBack = parent.copyWith(
           expectedDate: entry.expectedDate, // restore original due date
           isReceived: false,
           receivedDate: null,
         );
-        await _dbHelper.updateEntry(rolledBack);
+        await _repo.saveEntry(rolledBack);
       }
       // Delete the snapshot — don't just mark unreceived (avoids duplicate)
-      await _dbHelper.deleteEntry(id);
+      await _repo.deleteEntry(id);
     } else {
       // Regular non-recurring entry: simply un-mark received
-      await _dbHelper.markAsUnreceived(id);
+      await _repo.saveEntry(entry.copyWith(
+        isReceived: false,
+        receivedDate: null,
+      ));
     }
 
-    await loadAll();
+    await _reloadAfterWrite();
+  }
+
+  Future<void> _reloadAfterWrite() async {
+    try {
+      _all = await _repo.getEntries();
+    } catch (e) {
+      debugPrint('Reload failed: $e');
+    }
+    _applyFilters();
+    notifyListeners();
+    _afterChange();
+  }
+
+  void _afterChange() {
     _rescheduleNotifications();
+    onEntriesChanged?.call(allUpcoming);
   }
 
   void setSearchQuery(String? query) {
     _searchQuery = (query != null && query.isEmpty) ? null : query;
-    Future.wait([_loadEntries(), _loadUpcoming(), _loadReceived()])
-        .then((_) => notifyListeners());
+    _applyFilters();
+    notifyListeners();
   }
 
   void setFilterType(String? type) {
     _filterType = type;
-    Future.wait([_loadEntries(), _loadUpcoming(), _loadReceived()])
-        .then((_) => notifyListeners());
+    _applyFilters();
+    notifyListeners();
   }
 
   void clearFilters() {
     _searchQuery = null;
     _filterType = null;
-    Future.wait([_loadEntries(), _loadUpcoming(), _loadReceived()])
-        .then((_) => notifyListeners());
+    _applyFilters();
+    notifyListeners();
   }
 
   Map<String, double> getEstimatedAmountByType(int year) {
@@ -337,12 +391,16 @@ class EntryProvider extends ChangeNotifier {
     return results;
   }
 
-
-
   /// Reschedule all notifications in background
   void _rescheduleNotifications() {
     NotificationService()
-        .scheduleAllEntryNotifications(_upcomingEntries)
+        .scheduleAllEntryNotifications(allUpcoming)
         .catchError((e) => debugPrint('Notification reschedule error: $e'));
+  }
+
+  @override
+  void dispose() {
+    DataStore.instance.removeListener(_onRepositoryChanged);
+    super.dispose();
   }
 }

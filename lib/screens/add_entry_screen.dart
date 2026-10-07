@@ -24,7 +24,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
 
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 30));
   String _selectedType = 'FD';
-  int? _selectedCategoryId;
+  String? _selectedCategoryId;
   int _priority = 2; // Medium
   bool _isRecurring = false;
   String? _recurringType;
@@ -654,6 +654,7 @@ class _AddEntryScreenState extends State<AddEntryScreen> {
       recurringEndDate: (_isRecurring && _hasRecurringEndDate) ? _recurringEndDate : null,
       isReceived: widget.editEntry?.isReceived ?? false,
       receivedDate: widget.editEntry?.receivedDate,
+      parentId: widget.editEntry?.parentId,
       createdAt: widget.editEntry?.createdAt,
     );
 

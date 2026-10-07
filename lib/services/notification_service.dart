@@ -67,6 +67,17 @@ class NotificationService {
     return true;
   }
 
+  /// Generates a stable, positive 31-bit int from a string ID.
+  /// Used to map UUID entry IDs to the int IDs required by the notification
+  /// plugin. Multiplied by 10 + offset to separate the three reminders.
+  static int _stableNotifId(String entryId, int offset) {
+    // Use the first 8 hex chars of the UUID (ignoring dashes).
+    final hex = entryId.replaceAll('-', '');
+    final base = int.parse(hex.substring(0, 8), radix: 16) & 0x7FFFFFFF;
+    // Each entry gets 3 slots: base*3+0, base*3+1, base*3+2
+    return (base % 100000000) * 3 + offset;
+  }
+
   /// Schedule notifications for all upcoming entries
   Future<void> scheduleAllEntryNotifications(
       List<EntryModel> entries) async {
@@ -94,7 +105,7 @@ class NotificationService {
       // Schedule 7 days before
       if (daysLeft >= 7) {
         await _scheduleNotification(
-          id: (entry.id ?? 0) * 10 + 1,
+          id: _stableNotifId(entry.id, 0),
           title: '📅 Income Reminder',
           body:
               '${entry.title} - ${entry.amount.toStringAsFixed(0)} due in 7 days',
@@ -106,7 +117,7 @@ class NotificationService {
       // Schedule 3 days before
       if (daysLeft >= 3) {
         await _scheduleNotification(
-          id: (entry.id ?? 0) * 10 + 2,
+          id: _stableNotifId(entry.id, 1),
           title: '⏰ Due in 3 Days!',
           body:
               '${entry.title} - ${entry.amount.toStringAsFixed(0)} - only 3 days left!',
@@ -125,7 +136,7 @@ class NotificationService {
       );
       if (dayOf.isAfter(now)) {
         await _scheduleNotification(
-          id: (entry.id ?? 0) * 10 + 3,
+          id: _stableNotifId(entry.id, 2),
           title: '💰 Income Due Today!',
           body: '${entry.title} - ${entry.amount.toStringAsFixed(0)} is expected today!',
           scheduledDate: dayOf,
@@ -181,10 +192,10 @@ class NotificationService {
   }
 
   /// Cancel all notifications for a specific entry
-  Future<void> cancelEntryNotifications(int entryId) async {
-    await _plugin.cancel(entryId * 10 + 1);
-    await _plugin.cancel(entryId * 10 + 2);
-    await _plugin.cancel(entryId * 10 + 3);
+  Future<void> cancelEntryNotifications(String entryId) async {
+    await _plugin.cancel(_stableNotifId(entryId, 0));
+    await _plugin.cancel(_stableNotifId(entryId, 1));
+    await _plugin.cancel(_stableNotifId(entryId, 2));
   }
 
   /// Show immediate notification (for testing or instant alerts)

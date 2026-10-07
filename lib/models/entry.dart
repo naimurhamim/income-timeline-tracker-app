@@ -1,10 +1,13 @@
+import 'package:uuid/uuid.dart';
+
 class EntryModel {
-  final int? id;
+  /// Unique string ID (UUID). Safe to merge across devices.
+  final String id;
   final String title;
   final double amount;
   final DateTime expectedDate;
   final String type; // 'FD', 'Savings', or custom category name
-  final int? categoryId;
+  final String? categoryId;
   final int priority; // 1=Low, 2=Medium, 3=High
   final String? notes;
   final bool isRecurring;
@@ -12,12 +15,12 @@ class EntryModel {
   final DateTime? recurringEndDate;
   final bool isReceived;
   final DateTime? receivedDate;
-  final int? parentId; // ID of the recurring entry this received copy was created from
+  final String? parentId; // ID of the recurring entry this received copy was created from
   final DateTime createdAt;
   final DateTime updatedAt;
 
   EntryModel({
-    this.id,
+    String? id,
     required this.title,
     required this.amount,
     required this.expectedDate,
@@ -33,9 +36,16 @@ class EntryModel {
     this.parentId,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : createdAt = createdAt ?? DateTime.now(),
+  })  : id = id ?? newId(),
+        createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
+  static const _uuid = Uuid();
+
+  /// Generates a new unique entry ID.
+  static String newId() => _uuid.v4();
+
+  /// Same map format is used for SQLite, Firestore and JSON backups.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -59,34 +69,41 @@ class EntryModel {
 
   factory EntryModel.fromMap(Map<String, dynamic> map) {
     return EntryModel(
-      id: map['id'] as int?,
+      id: map['id'].toString(),
       title: map['title'] as String,
       amount: (map['amount'] as num).toDouble(),
       expectedDate: DateTime.parse(map['expected_date'] as String),
       type: map['type'] as String,
-      categoryId: map['category_id'] as int?,
-      priority: map['priority'] as int? ?? 2,
+      categoryId: map['category_id']?.toString(),
+      priority: (map['priority'] as num?)?.toInt() ?? 2,
       notes: map['notes'] as String?,
-      isRecurring: (map['is_recurring'] as int?) == 1,
+      isRecurring: _asBool(map['is_recurring']),
       recurringType: map['recurring_type'] as String?,
-      recurringEndDate: map['recurring_end_date'] != null
-          ? DateTime.parse(map['recurring_end_date'] as String)
-          : null,
-      isReceived: (map['is_received'] as int?) == 1,
-      receivedDate: map['received_date'] != null
-          ? DateTime.parse(map['received_date'] as String)
-          : null,
-      parentId: map['parent_id'] as int?,
-      createdAt: DateTime.parse(map['created_at'] as String),
-      updatedAt: DateTime.parse(map['updated_at'] as String),
+      recurringEndDate: _asDate(map['recurring_end_date']),
+      isReceived: _asBool(map['is_received']),
+      receivedDate: _asDate(map['received_date']),
+      parentId: map['parent_id']?.toString(),
+      createdAt: _asDate(map['created_at']) ?? DateTime.now(),
+      updatedAt: _asDate(map['updated_at']) ?? DateTime.now(),
     );
+  }
+
+  static bool _asBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value == 1;
+    return false;
+  }
+
+  static DateTime? _asDate(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
   }
 
   /// Sentinel value to explicitly pass null to nullable fields in [copyWith].
   static const _unset = Object();
 
   EntryModel copyWith({
-    Object? id = _unset,
+    String? id,
     String? title,
     double? amount,
     DateTime? expectedDate,
@@ -104,12 +121,12 @@ class EntryModel {
     DateTime? updatedAt,
   }) {
     return EntryModel(
-      id: id == _unset ? this.id : id as int?,
+      id: id ?? this.id,
       title: title ?? this.title,
       amount: amount ?? this.amount,
       expectedDate: expectedDate ?? this.expectedDate,
       type: type ?? this.type,
-      categoryId: categoryId == _unset ? this.categoryId : categoryId as int?,
+      categoryId: categoryId == _unset ? this.categoryId : categoryId as String?,
       priority: priority ?? this.priority,
       notes: notes == _unset ? this.notes : notes as String?,
       isRecurring: isRecurring ?? this.isRecurring,
@@ -117,7 +134,7 @@ class EntryModel {
       recurringEndDate: recurringEndDate == _unset ? this.recurringEndDate : recurringEndDate as DateTime?,
       isReceived: isReceived ?? this.isReceived,
       receivedDate: receivedDate == _unset ? this.receivedDate : receivedDate as DateTime?,
-      parentId: parentId == _unset ? this.parentId : parentId as int?,
+      parentId: parentId == _unset ? this.parentId : parentId as String?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );

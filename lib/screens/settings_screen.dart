@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/category.dart';
+import '../providers/account_provider.dart';
 import '../providers/category_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/currency_provider.dart';
@@ -9,6 +10,7 @@ import '../services/update_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
+import '../widgets/account_card.dart';
 import 'pin_setup_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -25,6 +27,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadVersion();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final account = context.read<AccountProvider>();
+      if (!account.isSignedIn) account.refreshLocalCount();
+    });
   }
 
   Future<void> _loadVersion() async {
@@ -42,6 +49,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final categoryProvider = context.watch<CategoryProvider>();
     final authService = context.watch<AuthService>();
     final currencyProvider = context.watch<CurrencyProvider>();
+    final isSignedIn = context.select<AccountProvider, bool>((a) => a.isSignedIn);
+    final iconColor = isDark ? AppColors.accentLime : AppColors.primaryTeal;
 
     return Scaffold(
       body: CustomScrollView(
@@ -74,6 +83,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ─── Account ───
+                  Text('Account', style: theme.textTheme.headlineMedium),
+                  const SizedBox(height: 12),
+                  const AccountCard(),
+
+                  const SizedBox(height: 24),
+
                   // ─── Appearance ───
                   Text('Appearance', style: theme.textTheme.headlineMedium),
                   const SizedBox(height: 12),
@@ -115,6 +131,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       onTap: () => _showCurrencyPicker(context, currencyProvider),
                     ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ─── Data ───
+                  Text('Data', style: theme.textTheme.headlineMedium),
+                  const SizedBox(height: 12),
+                  _buildSettingCard(
+                    theme: theme,
+                    child: DataBackupTiles(iconColor: iconColor),
                   ),
 
                   const SizedBox(height: 24),
@@ -244,12 +270,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         title: Text(cat.name),
-                        trailing: cat.id != null && cat.id! > 5
+                        trailing: !cat.isDefault
                             ? IconButton(
                                 icon: const Icon(Icons.delete_outline_rounded,
                                     color: AppColors.error, size: 20),
                                 onPressed: () => _confirmDeleteCategory(
-                                    context, categoryProvider, cat.id!),
+                                    context, categoryProvider, cat.id),
                               )
                             : Icon(Icons.lock_rounded,
                                 size: 16, color: theme.textTheme.bodySmall?.color),
@@ -293,8 +319,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           leading: Icon(Icons.storage_rounded,
                               color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
                           title: const Text('Data Storage'),
-                          subtitle: const Text(
-                            'All data is stored locally on your device. No data is sent to any server.',
+                          subtitle: Text(
+                            isSignedIn
+                                ? 'Your data is saved in your Google account (Firebase) and cached on this device for offline use.'
+                                : 'All data is stored locally on your device. Sign in to back it up to the cloud.',
                           ),
                         ),
                         const Divider(height: 1),
@@ -302,8 +330,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           leading: Icon(Icons.security_rounded,
                               color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
                           title: const Text('Privacy'),
-                          subtitle: const Text(
-                            'Your financial data never leaves your device.',
+                          subtitle: Text(
+                            isSignedIn
+                                ? 'Only you can access your data. It is never shared.'
+                                : 'Your financial data never leaves your device.',
                           ),
                         ),
                       ],
@@ -699,7 +729,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _confirmDeleteCategory(
-      BuildContext context, CategoryProvider provider, int id) {
+      BuildContext context, CategoryProvider provider, String id) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

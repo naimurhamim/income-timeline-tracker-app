@@ -1,7 +1,13 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'data/cloud_repository.dart';
+import 'data/data_repository.dart';
+import 'database/database_helper.dart';
 import 'theme/app_theme.dart';
+import 'providers/account_provider.dart';
 import 'providers/entry_provider.dart';
 import 'providers/category_provider.dart';
 import 'providers/theme_provider.dart';
@@ -12,7 +18,7 @@ import 'screens/lock_screen.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Set preferred orientations
@@ -20,6 +26,18 @@ void main() {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // Pick the storage before any provider is created: cloud if a Google
+  // session is restored, otherwise local SQLite (guest mode).
+  DataRepository initialRepo = DatabaseHelper();
+  try {
+    await Firebase.initializeApp();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) initialRepo = CloudRepository(user.uid);
+  } catch (e) {
+    debugPrint('Firebase init failed, using local storage: $e');
+  }
+  DataStore.init(initialRepo);
 
   runApp(const MoneyTrackerApp());
 }
@@ -37,6 +55,7 @@ class MoneyTrackerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => CurrencyProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
+        ChangeNotifierProvider(create: (_) => AccountProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
@@ -113,9 +132,18 @@ class _AppInitializerState extends State<AppInitializer>
       final authService = Provider.of<AuthService>(context, listen: false);
       final notifProvider =
           Provider.of<NotificationProvider>(context, listen: false);
+      final accountProvider =
+          Provider.of<AccountProvider>(context, listen: false);
 
-      await categoryProvider.loadCategories();
-      await entryProvider.loadAll();
+      await categoryProvider.loadCategories(preferServer: true);
+      await entryProvider.loadAll(preferServer: true);
+
+      // Restore Google account state
+      try {
+        await accountProvider.init();
+      } catch (e) {
+        debugPrint('Account init failed: $e');
+      }
 
       // Initialize auth
       await authService.init();
