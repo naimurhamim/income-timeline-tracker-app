@@ -10,6 +10,7 @@ import 'theme/app_theme.dart';
 import 'providers/account_provider.dart';
 import 'providers/entry_provider.dart';
 import 'providers/category_provider.dart';
+import 'providers/investment_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/currency_provider.dart';
 import 'providers/notification_provider.dart';
@@ -52,6 +53,7 @@ class MoneyTrackerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => CategoryProvider()),
         ChangeNotifierProvider(create: (_) => EntryProvider()),
+        ChangeNotifierProvider(create: (_) => InvestmentProvider()),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => CurrencyProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
@@ -129,6 +131,8 @@ class _AppInitializerState extends State<AppInitializer>
           Provider.of<CategoryProvider>(context, listen: false);
       final entryProvider =
           Provider.of<EntryProvider>(context, listen: false);
+      final investmentProvider =
+          Provider.of<InvestmentProvider>(context, listen: false);
       final authService = Provider.of<AuthService>(context, listen: false);
       final notifProvider =
           Provider.of<NotificationProvider>(context, listen: false);
@@ -137,6 +141,7 @@ class _AppInitializerState extends State<AppInitializer>
 
       await categoryProvider.loadCategories(preferServer: true);
       await entryProvider.loadAll(preferServer: true);
+      await investmentProvider.loadInvestments(preferServer: true);
 
       // Restore Google account state
       try {

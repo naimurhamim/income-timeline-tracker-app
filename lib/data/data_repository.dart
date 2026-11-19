@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/category.dart';
 import '../models/entry.dart';
+import '../models/investment.dart';
 
 /// Common storage interface used by the providers.
 ///
@@ -21,6 +22,11 @@ abstract class DataRepository {
   Future<void> saveCategory(CategoryModel category);
   Future<void> deleteCategory(String id);
 
+  // Investments
+  Future<List<InvestmentModel>> getInvestments({bool preferServer = false});
+  Future<void> saveInvestment(InvestmentModel investment);
+  Future<void> deleteInvestment(String id);
+
   /// Inserts or replaces many records at once.
   ///
   /// When [waitForServer] is true (cloud only) the future completes only
@@ -28,11 +34,12 @@ abstract class DataRepository {
   Future<void> saveAll({
     List<CategoryModel> categories = const [],
     List<EntryModel> entries = const [],
+    List<InvestmentModel> investments = const [],
     bool waitForServer = false,
     void Function(int done, int total)? onProgress,
   });
 
-  /// Removes every entry and every custom category.
+  /// Removes every entry, every investment and every custom category.
   Future<void> clearAll({bool waitForServer = false});
 }
 
@@ -64,6 +71,7 @@ class DataStore extends ValueNotifier<DataRepository> {
 typedef MergeResult = ({
   List<CategoryModel> categories,
   List<EntryModel> entries,
+  List<InvestmentModel> investments,
   int skippedDuplicates,
 });
 
@@ -80,20 +88,34 @@ String entryFingerprint(EntryModel e) {
   ].join('|');
 }
 
+/// Content fingerprint used to detect the same investment saved with a
+/// different ID across devices or backup imports.
+String investmentFingerprint(InvestmentModel i) {
+  final d = i.investedDate;
+  return [
+    i.title.trim().toLowerCase(),
+    i.amount.toStringAsFixed(2),
+    i.type.trim().toLowerCase(),
+    '${d.year}-${d.month}-${d.day}',
+  ].join('|');
+}
+
 /// Prepares incoming data (from another device or a JSON file) for merging
 /// into existing data without creating duplicates.
 ///
 /// - Built-in categories are skipped (they already exist everywhere).
 /// - A custom category whose name matches an existing one (case-insensitive)
 ///   is not added again; entries pointing to it are remapped instead.
-/// - An entry with the same ID as an existing one overwrites it.
-/// - An entry with a different ID but the same content (see
-///   [entryFingerprint]) is skipped as a duplicate.
+/// - An entry or investment with the same ID as an existing one overwrites it.
+/// - An entry or investment with a different ID but the same content
+///   (see [entryFingerprint] / [investmentFingerprint]) is skipped as a duplicate.
 MergeResult mergeIncoming({
   required List<CategoryModel> existing,
   required List<CategoryModel> incomingCategories,
   required List<EntryModel> incomingEntries,
   List<EntryModel> existingEntries = const [],
+  List<InvestmentModel> incomingInvestments = const [],
+  List<InvestmentModel> existingInvestments = const [],
 }) {
   String key(String name) => name.trim().toLowerCase();
 
@@ -152,5 +174,31 @@ MergeResult mergeIncoming({
     );
   }).toList();
 
-  return (categories: toAdd, entries: entries, skippedDuplicates: skipped);
+  // ── Investments ──
+  final existingInvestmentIds = existingInvestments.map((i) => i.id).toSet();
+  final invIdByFingerprint = <String, String>{
+    for (final i in existingInvestments) investmentFingerprint(i): i.id,
+  };
+  final keptInvestments = <InvestmentModel>[];
+
+  for (final inv in incomingInvestments) {
+    final fp = investmentFingerprint(inv);
+    if (!existingInvestmentIds.contains(inv.id)) {
+      final match = invIdByFingerprint[fp];
+      if (match != null && match != inv.id) {
+        skipped++;
+        continue;
+      }
+    }
+    invIdByFingerprint[fp] = inv.id;
+    existingInvestmentIds.add(inv.id);
+    keptInvestments.add(inv);
+  }
+
+  return (
+    categories: toAdd,
+    entries: entries,
+    investments: keptInvestments,
+    skippedDuplicates: skipped,
+  );
 }

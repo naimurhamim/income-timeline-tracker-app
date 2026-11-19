@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../data/data_repository.dart';
 import '../models/entry.dart';
 import '../models/category.dart';
+import '../models/investment.dart';
 
 /// Local SQLite storage, used in guest mode (not signed in).
 class DatabaseHelper implements DataRepository {
@@ -19,11 +20,12 @@ class DatabaseHelper implements DataRepository {
 
   static const String _dbName = 'money_tracker.db';
   static const String _backupBeforeV4 = 'money_tracker_backup_v3.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   // Table names
   static const String tableEntries = 'entries';
   static const String tableCategories = 'categories';
+  static const String tableInvestments = 'investments';
 
   @override
   bool get isCloud => false;
@@ -112,6 +114,23 @@ class DatabaseHelper implements DataRepository {
     ''');
   }
 
+  Future<void> _createInvestmentsTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableInvestments (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        amount REAL NOT NULL,
+        type TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT 'wallet',
+        color TEXT NOT NULL DEFAULT '#1B3A4B',
+        invested_date TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
   Future<void> _insertDefaultCategories(DatabaseExecutor db) async {
     for (final category in CategoryModel.defaultCategories) {
       await db.insert(
@@ -124,6 +143,7 @@ class DatabaseHelper implements DataRepository {
 
   Future<void> _onCreate(Database db, int version) async {
     await _createTables(db);
+    await _createInvestmentsTable(db);
     await _insertDefaultCategories(db);
   }
 
@@ -136,6 +156,9 @@ class DatabaseHelper implements DataRepository {
     }
     if (oldVersion < 4) {
       await _migrateToStringIds(db);
+    }
+    if (oldVersion < 5) {
+      await _createInvestmentsTable(db);
     }
   }
 
@@ -249,6 +272,36 @@ class DatabaseHelper implements DataRepository {
   }
 
   // ═══════════════════════════════════
+  // INVESTMENT Operations
+  // ═══════════════════════════════════
+
+  @override
+  Future<List<InvestmentModel>> getInvestments({bool preferServer = false}) async {
+    final db = await database;
+    final maps = await db.query(
+      tableInvestments,
+      orderBy: 'invested_date DESC, created_at DESC',
+    );
+    return maps.map((map) => InvestmentModel.fromMap(map)).toList();
+  }
+
+  @override
+  Future<void> saveInvestment(InvestmentModel investment) async {
+    final db = await database;
+    await db.insert(
+      tableInvestments,
+      investment.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<void> deleteInvestment(String id) async {
+    final db = await database;
+    await db.delete(tableInvestments, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ═══════════════════════════════════
   // Bulk Operations
   // ═══════════════════════════════════
 
@@ -256,11 +309,12 @@ class DatabaseHelper implements DataRepository {
   Future<void> saveAll({
     List<CategoryModel> categories = const [],
     List<EntryModel> entries = const [],
+    List<InvestmentModel> investments = const [],
     bool waitForServer = false,
     void Function(int done, int total)? onProgress,
   }) async {
     final db = await database;
-    final total = categories.length + entries.length;
+    final total = categories.length + entries.length + investments.length;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final c in categories) {
@@ -269,6 +323,10 @@ class DatabaseHelper implements DataRepository {
       }
       for (final e in entries) {
         batch.insert(tableEntries, e.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final inv in investments) {
+        batch.insert(tableInvestments, inv.toMap(),
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -281,20 +339,24 @@ class DatabaseHelper implements DataRepository {
     final db = await database;
     await db.transaction((txn) async {
       await txn.delete(tableEntries);
+      await txn.delete(tableInvestments);
       await txn.delete(tableCategories);
       await _insertDefaultCategories(txn);
     });
   }
 
-  /// Number of entries plus custom categories stored locally.
-  Future<({int entries, int customCategories})> countLocalData() async {
+  /// Number of entries, custom categories, and investments stored locally.
+  Future<({int entries, int customCategories, int investments})>
+      countLocalData() async {
     final db = await database;
     int firstInt(List<Map<String, Object?>> rows) =>
         rows.isEmpty ? 0 : ((rows.first.values.first as num?)?.toInt() ?? 0);
     final e = firstInt(await db.rawQuery('SELECT COUNT(*) FROM $tableEntries'));
     final c = firstInt(await db.rawQuery(
         "SELECT COUNT(*) FROM $tableCategories WHERE id NOT LIKE '${CategoryModel.defaultIdPrefix}%'"));
-    return (entries: e, customCategories: c);
+    final i =
+        firstInt(await db.rawQuery('SELECT COUNT(*) FROM $tableInvestments'));
+    return (entries: e, customCategories: c, investments: i);
   }
 
   // ═══════════════════════════════════

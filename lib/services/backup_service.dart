@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../data/data_repository.dart';
 import '../models/category.dart';
 import '../models/entry.dart';
+import '../models/investment.dart';
 
 /// Handles JSON export and import for guest/offline users.
 class BackupService {
@@ -24,6 +25,7 @@ class BackupService {
     try {
       final categories = await _repo.getCategories();
       final entries = await _repo.getEntries();
+      final investments = await _repo.getInvestments();
 
       final data = {
         'app': 'money_tracker',
@@ -31,6 +33,7 @@ class BackupService {
         'createdAt': DateTime.now().toIso8601String(),
         'categories': categories.map((c) => c.toMap()).toList(),
         'entries': entries.map((e) => e.toMap()).toList(),
+        'investments': investments.map((i) => i.toMap()).toList(),
       };
 
       final dir = await getApplicationDocumentsDirectory();
@@ -63,29 +66,35 @@ class BackupService {
 
   /// Lets the user pick a JSON file and merges it into the current repository.
   /// Returns the number of records imported.
-  Future<({int categories, int entries, int skipped})> importFromJson() async {
+  Future<({int categories, int entries, int investments, int skipped})>
+      importFromJson() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
     if (result == null || result.files.isEmpty) {
-      return (categories: 0, entries: 0, skipped: 0);
+      return (categories: 0, entries: 0, investments: 0, skipped: 0);
     }
 
     final path = result.files.single.path;
-    if (path == null) return (categories: 0, entries: 0, skipped: 0);
+    if (path == null) {
+      return (categories: 0, entries: 0, investments: 0, skipped: 0);
+    }
 
     final file = File(path);
     final content = await file.readAsString();
     final decoded = jsonDecode(content);
     if (decoded is! Map<String, dynamic> ||
-        (decoded['entries'] is! List && decoded['categories'] is! List)) {
+        (decoded['entries'] is! List &&
+            decoded['categories'] is! List &&
+            decoded['investments'] is! List)) {
       throw const FormatException('This is not a Money Tracker backup file.');
     }
     final data = decoded;
 
     final rawCategories = data['categories'] as List<dynamic>? ?? [];
     final rawEntries = data['entries'] as List<dynamic>? ?? [];
+    final rawInvestments = data['investments'] as List<dynamic>? ?? [];
 
     final categories = <CategoryModel>[];
     for (final raw in rawCategories) {
@@ -105,18 +114,34 @@ class BackupService {
       }
     }
 
+    final investments = <InvestmentModel>[];
+    for (final raw in rawInvestments) {
+      try {
+        investments.add(InvestmentModel.fromMap(raw as Map<String, dynamic>));
+      } catch (e) {
+        debugPrint('Skipping invalid investment during import: $e');
+      }
+    }
+
     final repo = _repo;
     final merged = mergeIncoming(
       existing: await repo.getCategories(),
       existingEntries: await repo.getEntries(),
+      existingInvestments: await repo.getInvestments(),
       incomingCategories: categories,
       incomingEntries: entries,
+      incomingInvestments: investments,
     );
-    await repo.saveAll(categories: merged.categories, entries: merged.entries);
+    await repo.saveAll(
+      categories: merged.categories,
+      entries: merged.entries,
+      investments: merged.investments,
+    );
 
     return (
       categories: merged.categories.length,
       entries: merged.entries.length,
+      investments: merged.investments.length,
       skipped: merged.skippedDuplicates,
     );
   }

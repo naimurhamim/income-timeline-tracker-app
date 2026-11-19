@@ -3,11 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/category.dart';
 import '../models/entry.dart';
+import '../models/investment.dart';
 import 'data_repository.dart';
 
 /// Firestore storage for signed-in users.
 ///
-/// Layout: `users/{uid}/entries/{id}` and `users/{uid}/categories/{id}`.
+/// Layout: `users/{uid}/entries/{id}`, `users/{uid}/categories/{id}`
+/// and `users/{uid}/investments/{id}`.
 /// Firestore keeps an offline cache, so reads and writes keep working
 /// without internet and sync automatically when the connection returns.
 class CloudRepository implements DataRepository {
@@ -28,6 +30,9 @@ class CloudRepository implements DataRepository {
 
   CollectionReference<Map<String, dynamic>> get _categories =>
       userDoc.collection('categories');
+
+  CollectionReference<Map<String, dynamic>> get _investments =>
+      userDoc.collection('investments');
 
   @override
   bool get isCloud => true;
@@ -121,6 +126,39 @@ class CloudRepository implements DataRepository {
     _fireAndForget(_categories.doc(id).delete(), 'delete category');
   }
 
+  // ═══════════════════════════════════
+  // Investments
+  // ═══════════════════════════════════
+
+  @override
+  Future<List<InvestmentModel>> getInvestments({bool preferServer = false}) async {
+    final snap = await _read(_investments, preferServer);
+    final list = <InvestmentModel>[];
+    for (final doc in snap.docs) {
+      try {
+        list.add(InvestmentModel.fromMap({...doc.data(), 'id': doc.id}));
+      } catch (e) {
+        debugPrint('Skipping invalid investment ${doc.id}: $e');
+      }
+    }
+    list.sort((a, b) {
+      final dateCmp = b.investedDate.compareTo(a.investedDate);
+      return dateCmp != 0 ? dateCmp : b.createdAt.compareTo(a.createdAt);
+    });
+    return list;
+  }
+
+  @override
+  Future<void> saveInvestment(InvestmentModel investment) async {
+    _fireAndForget(
+        _investments.doc(investment.id).set(investment.toMap()), 'investment');
+  }
+
+  @override
+  Future<void> deleteInvestment(String id) async {
+    _fireAndForget(_investments.doc(id).delete(), 'delete investment');
+  }
+
   /// Adds the built-in categories if the account has none yet.
   Future<void> ensureDefaultCategories() async {
     final existing = await getCategories(preferServer: true);
@@ -140,12 +178,14 @@ class CloudRepository implements DataRepository {
   Future<void> saveAll({
     List<CategoryModel> categories = const [],
     List<EntryModel> entries = const [],
+    List<InvestmentModel> investments = const [],
     bool waitForServer = false,
     void Function(int done, int total)? onProgress,
   }) async {
     final writes = <(DocumentReference<Map<String, dynamic>>, Map<String, dynamic>)>[
       for (final c in categories) (_categories.doc(c.id), c.toMap()),
       for (final e in entries) (_entries.doc(e.id), e.toMap()),
+      for (final inv in investments) (_investments.doc(inv.id), inv.toMap()),
     ];
     final total = writes.length;
     var done = 0;
@@ -172,8 +212,10 @@ class CloudRepository implements DataRepository {
   Future<void> clearAll({bool waitForServer = false}) async {
     final entries = await _read(_entries, true);
     final categories = await _read(_categories, true);
+    final investments = await _read(_investments, true);
     final refs = [
       ...entries.docs.map((d) => d.reference),
+      ...investments.docs.map((d) => d.reference),
       ...categories.docs
           .where((d) => !d.id.startsWith(CategoryModel.defaultIdPrefix))
           .map((d) => d.reference),

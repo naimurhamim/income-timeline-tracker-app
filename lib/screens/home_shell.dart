@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/entries_screen.dart';
+import '../screens/investments_screen.dart';
 import '../screens/summary_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/add_entry_screen.dart';
+import '../screens/add_investment_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/slide_indexed_stack.dart';
 
@@ -38,6 +40,7 @@ class _HomeShellState extends State<HomeShell> {
             },
           ),
           EntriesScreen(key: _entriesKey),
+          const InvestmentsScreen(),
           const SummaryScreen(),
           const SettingsScreen(),
         ],
@@ -95,8 +98,17 @@ class _HomeShellState extends State<HomeShell> {
               ),
               NavigationDestination(
                 icon: Icon(
-                  Icons.bar_chart_rounded,
+                  Icons.account_balance_wallet_rounded,
                   color: _currentIndex == 2
+                      ? (isDark ? AppColors.accentLime : AppColors.primaryTeal)
+                      : theme.textTheme.bodySmall?.color,
+                ),
+                label: 'Invest',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.bar_chart_rounded,
+                  color: _currentIndex == 3
                       ? (isDark ? AppColors.accentLime : AppColors.primaryTeal)
                       : theme.textTheme.bodySmall?.color,
                 ),
@@ -105,7 +117,7 @@ class _HomeShellState extends State<HomeShell> {
               NavigationDestination(
                 icon: Icon(
                   Icons.settings_rounded,
-                  color: _currentIndex == 3
+                  color: _currentIndex == 4
                       ? (isDark ? AppColors.accentLime : AppColors.primaryTeal)
                       : theme.textTheme.bodySmall?.color,
                 ),
@@ -115,13 +127,15 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ),
       ),
-      floatingActionButton: _currentIndex <= 1
+      floatingActionButton: _currentIndex <= 2
           ? FloatingActionButton(
               onPressed: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const AddEntryScreen(),
+                    builder: (_) => _currentIndex == 2
+                        ? const AddInvestmentScreen()
+                        : const AddEntryScreen(),
                   ),
                 );
               },

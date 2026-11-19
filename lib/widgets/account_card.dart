@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/account_provider.dart';
 import '../providers/category_provider.dart';
 import '../providers/entry_provider.dart';
+import '../providers/investment_provider.dart';
 import '../services/backup_service.dart';
 import '../theme/app_colors.dart';
 
@@ -91,10 +92,11 @@ class _GuestView extends StatelessWidget {
             ),
           ],
         ),
-        if (account.localEntryCount > 0 && !busy) ...[
+        if ((account.localEntryCount > 0 || account.localInvestmentCount > 0) &&
+            !busy) ...[
           const SizedBox(height: 12),
           Text(
-            '${account.localEntryCount} ${account.localEntryCount == 1 ? 'entry' : 'entries'} on this device will be uploaded to your account.',
+            _localUploadSummary(account),
             style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
@@ -189,6 +191,18 @@ class _GuestView extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  String _localUploadSummary(AccountProvider account) {
+    final entries = account.localEntryCount;
+    final investments = account.localInvestmentCount;
+    final entryPart =
+        entries > 0 ? '$entries ${entries == 1 ? 'entry' : 'entries'}' : null;
+    final invPart = investments > 0
+        ? '$investments ${investments == 1 ? 'investment' : 'investments'}'
+        : null;
+    final parts = [?entryPart, ?invPart];
+    return '${parts.join(' and ')} on this device will be uploaded to your account.';
   }
 
   Future<void> _signIn(BuildContext context) async {
@@ -395,20 +409,28 @@ class DataBackupTiles extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     final entries = context.read<EntryProvider>();
     final categories = context.read<CategoryProvider>();
+    final investments = context.read<InvestmentProvider>();
     try {
       final result = await BackupService.instance.importFromJson();
-      if (result.entries == 0 && result.categories == 0 && result.skipped == 0) {
+      if (result.entries == 0 &&
+          result.categories == 0 &&
+          result.investments == 0 &&
+          result.skipped == 0) {
         return;
       }
       await categories.loadCategories();
       await entries.loadAll();
+      await investments.loadInvestments();
       final skippedText = result.skipped > 0
           ? ' (${result.skipped} duplicates skipped)'
+          : '';
+      final investmentText = result.investments > 0
+          ? ', ${result.investments} investments'
           : '';
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            'Imported ${result.entries} entries and ${result.categories} categories$skippedText',
+            'Imported ${result.entries} entries$investmentText and ${result.categories} categories$skippedText',
           ),
         ),
       );

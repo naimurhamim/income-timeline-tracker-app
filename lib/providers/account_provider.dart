@@ -10,6 +10,7 @@ import '../data/data_repository.dart';
 import '../database/database_helper.dart';
 import '../models/category.dart';
 import '../models/entry.dart';
+import '../models/investment.dart';
 
 enum AccountStatus { guest, signingIn, syncing, signedIn }
 
@@ -32,6 +33,7 @@ class AccountProvider extends ChangeNotifier {
   String? _errorMessage;
   double _syncProgress = 0;
   int _localEntryCount = 0;
+  int _localInvestmentCount = 0;
 
   User? get user => _user;
   AccountStatus get status => _status;
@@ -46,6 +48,9 @@ class AccountProvider extends ChangeNotifier {
 
   /// Number of entries stored only on this device (guest mode).
   int get localEntryCount => _localEntryCount;
+
+  /// Number of investments stored only on this device (guest mode).
+  int get localInvestmentCount => _localInvestmentCount;
 
   /// Restores the previous session. [DataStore] is already pointing to the
   /// correct repository (set in `main()`), so this only updates state.
@@ -74,6 +79,7 @@ class AccountProvider extends ChangeNotifier {
     try {
       final counts = await DatabaseHelper().countLocalData();
       _localEntryCount = counts.entries;
+      _localInvestmentCount = counts.investments;
     } catch (e) {
       debugPrint('Local count failed: $e');
     }
@@ -140,6 +146,7 @@ class AccountProvider extends ChangeNotifier {
 
       _user = user;
       _localEntryCount = 0;
+      _localInvestmentCount = 0;
       _status = AccountStatus.signedIn;
       // Switching the repository makes every provider reload its data.
       DataStore.instance.use(cloud);
@@ -179,6 +186,7 @@ class AccountProvider extends ChangeNotifier {
     final local = DatabaseHelper();
     await local.clearAll();
     _localEntryCount = 0;
+    _localInvestmentCount = 0;
     DataStore.instance.use(local);
 
     notifyListeners();
@@ -208,7 +216,9 @@ class AccountProvider extends ChangeNotifier {
   Future<void> _migrateLocalToCloud(CloudRepository cloud) async {
     final local = DatabaseHelper();
     final counts = await local.countLocalData();
-    if (counts.entries + counts.customCategories == 0) return;
+    if (counts.entries + counts.customCategories + counts.investments == 0) {
+      return;
+    }
 
     _status = AccountStatus.syncing;
     _syncProgress = 0;
@@ -216,20 +226,25 @@ class AccountProvider extends ChangeNotifier {
 
     final localCategories = await local.getCategories();
     final localEntries = await local.getEntries();
+    final localInvestments = await local.getInvestments();
 
-    // Merge by category name and entry content so nothing is duplicated.
+    // Merge by category name and entry/investment content so nothing is duplicated.
     final cloudCategories = await cloud.getCategories(preferServer: true);
     final cloudEntries = await cloud.getEntries(preferServer: true);
+    final cloudInvestments = await cloud.getInvestments(preferServer: true);
     final merged = mergeIncoming(
       existing: cloudCategories,
       existingEntries: cloudEntries,
+      existingInvestments: cloudInvestments,
       incomingCategories: localCategories,
       incomingEntries: localEntries,
+      incomingInvestments: localInvestments,
     );
 
     await cloud.saveAll(
       categories: merged.categories,
       entries: merged.entries,
+      investments: merged.investments,
       waitForServer: true,
       onProgress: (done, total) {
         _syncProgress = total > 0 ? done / total : 1;
@@ -238,7 +253,11 @@ class AccountProvider extends ChangeNotifier {
     );
 
     // Upload confirmed: keep a JSON copy, then clear the device.
-    await _createJsonBackup(categories: localCategories, entries: localEntries);
+    await _createJsonBackup(
+      categories: localCategories,
+      entries: localEntries,
+      investments: localInvestments,
+    );
     await local.clearAll();
 
     _syncProgress = 1;
@@ -250,6 +269,7 @@ class AccountProvider extends ChangeNotifier {
   Future<void> _createJsonBackup({
     required List<CategoryModel> categories,
     required List<EntryModel> entries,
+    required List<InvestmentModel> investments,
   }) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -266,6 +286,7 @@ class AccountProvider extends ChangeNotifier {
         'createdAt': DateTime.now().toIso8601String(),
         'categories': categories.map((c) => c.toMap()).toList(),
         'entries': entries.map((e) => e.toMap()).toList(),
+        'investments': investments.map((i) => i.toMap()).toList(),
       };
 
       await file.writeAsString(jsonEncode(data));
