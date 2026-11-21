@@ -14,11 +14,16 @@ class InvestmentProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _selectedTypeFilter;
   String _searchQuery = '';
+  VoidCallback? _onDataChanged;
 
   List<InvestmentModel> get allInvestments => _investments;
   bool get isLoading => _isLoading;
   String? get selectedTypeFilter => _selectedTypeFilter;
   String get searchQuery => _searchQuery;
+
+  void setOnDataChanged(VoidCallback? callback) {
+    _onDataChanged = callback;
+  }
 
   List<InvestmentModel> get filteredInvestments {
     final filter = _selectedTypeFilter?.trim().toLowerCase();
@@ -120,16 +125,19 @@ class InvestmentProvider extends ChangeNotifier {
   Future<void> addInvestment(InvestmentModel investment) async {
     await _repo.saveInvestment(investment);
     await loadInvestments();
+    _onDataChanged?.call();
   }
 
   Future<void> updateInvestment(InvestmentModel investment) async {
     await _repo.saveInvestment(investment);
     await loadInvestments();
+    _onDataChanged?.call();
   }
 
   Future<void> deleteInvestment(String id) async {
     await _repo.deleteInvestment(id);
     await loadInvestments();
+    _onDataChanged?.call();
   }
 
   void setTypeFilter(String? type) {

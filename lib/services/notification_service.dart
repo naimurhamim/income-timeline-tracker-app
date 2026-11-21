@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 import '../models/entry.dart';
 
 class NotificationService {
@@ -14,12 +14,24 @@ class NotificationService {
 
   bool _initialized = false;
 
+  bool get _supportsPlatform {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
   Future<void> init() async {
     if (_initialized) return;
 
     tz.initializeTimeZones();
     // Set local timezone - Bangladesh
     tz.setLocalLocation(tz.getLocation('Asia/Dhaka'));
+
+    if (!_supportsPlatform) {
+      _initialized = true;
+      return;
+    }
 
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -37,7 +49,6 @@ class NotificationService {
     await _plugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (details) {
-        // Handle tap on notification - can navigate to app
         debugPrint('Notification tapped: ${details.payload}');
       },
     );
@@ -47,6 +58,7 @@ class NotificationService {
 
   /// Request notification permission (Android 13+)
   Future<bool> requestPermission() async {
+    if (!_supportsPlatform) return true;
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) {
@@ -58,6 +70,7 @@ class NotificationService {
 
   /// Check if permission is granted
   Future<bool> isPermissionGranted() async {
+    if (!_supportsPlatform) return false;
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) {
@@ -68,31 +81,40 @@ class NotificationService {
   }
 
   /// Generates a stable, positive 31-bit int from a string ID.
-  /// Used to map UUID entry IDs to the int IDs required by the notification
-  /// plugin. Multiplied by 10 + offset to separate the three reminders.
   static int _stableNotifId(String entryId, int offset) {
-    // Use the first 8 hex chars of the UUID (ignoring dashes).
     final hex = entryId.replaceAll('-', '');
     final base = int.parse(hex.substring(0, 8), radix: 16) & 0x7FFFFFFF;
-    // Each entry gets 3 slots: base*3+0, base*3+1, base*3+2
     return (base % 100000000) * 3 + offset;
   }
 
-  /// Schedule notifications for all upcoming entries
-  Future<void> scheduleAllEntryNotifications(
-      List<EntryModel> entries) async {
-    if (!_initialized) await init();
+  Future<AndroidScheduleMode> _preferredAndroidScheduleMode() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return AndroidScheduleMode.inexactAllowWhileIdle;
+    try {
+      final canExact = await android.canScheduleExactNotifications();
+      return (canExact ?? false)
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle;
+    } catch (_) {
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+  }
 
-    // Cancel all existing scheduled notifications first
+  /// Schedule notifications for all upcoming entries (9:00 AM reminders).
+  Future<void> scheduleAllEntryNotifications(List<EntryModel> entries) async {
+    if (!_initialized) await init();
+    if (!_supportsPlatform) return;
+
     await _plugin.cancelAll();
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
+    final scheduleMode = await _preferredAndroidScheduleMode();
 
     for (final entry in entries) {
       if (entry.isReceived) continue;
 
-      // Compare date-only (ignore time) so today's entries are not skipped
       final dueDate = DateTime(
         entry.expectedDate.year,
         entry.expectedDate.month,
@@ -102,31 +124,37 @@ class NotificationService {
 
       final daysLeft = dueDate.difference(today).inDays;
 
-      // Schedule 7 days before
+      // Schedule 7 days before at 9:00 AM
       if (daysLeft >= 7) {
+        final sevenDay = dueDate.subtract(const Duration(days: 7));
         await _scheduleNotification(
           id: _stableNotifId(entry.id, 0),
           title: '📅 Income Reminder',
           body:
               '${entry.title} - ${entry.amount.toStringAsFixed(0)} due in 7 days',
-          scheduledDate: entry.expectedDate.subtract(const Duration(days: 7)),
+          scheduledDate:
+              DateTime(sevenDay.year, sevenDay.month, sevenDay.day, 9, 0),
+          scheduleMode: scheduleMode,
           payload: 'entry_${entry.id}',
         );
       }
 
-      // Schedule 3 days before
+      // Schedule 3 days before at 9:00 AM
       if (daysLeft >= 3) {
+        final threeDay = dueDate.subtract(const Duration(days: 3));
         await _scheduleNotification(
           id: _stableNotifId(entry.id, 1),
           title: '⏰ Due in 3 Days!',
           body:
               '${entry.title} - ${entry.amount.toStringAsFixed(0)} - only 3 days left!',
-          scheduledDate: entry.expectedDate.subtract(const Duration(days: 3)),
+          scheduledDate:
+              DateTime(threeDay.year, threeDay.month, threeDay.day, 9, 0),
+          scheduleMode: scheduleMode,
           payload: 'entry_${entry.id}',
         );
       }
 
-      // Schedule on the day itself (9 AM)
+      // Schedule on the day itself (9:00 AM)
       final dayOf = DateTime(
         entry.expectedDate.year,
         entry.expectedDate.month,
@@ -138,8 +166,10 @@ class NotificationService {
         await _scheduleNotification(
           id: _stableNotifId(entry.id, 2),
           title: '💰 Income Due Today!',
-          body: '${entry.title} - ${entry.amount.toStringAsFixed(0)} is expected today!',
+          body:
+              '${entry.title} - ${entry.amount.toStringAsFixed(0)} is expected today!',
           scheduledDate: dayOf,
+          scheduleMode: scheduleMode,
           payload: 'entry_${entry.id}',
         );
       }
@@ -151,6 +181,7 @@ class NotificationService {
     required String title,
     required String body,
     required DateTime scheduledDate,
+    required AndroidScheduleMode scheduleMode,
     String? payload,
   }) async {
     final now = DateTime.now();
@@ -181,7 +212,7 @@ class NotificationService {
             presentSound: true,
           ),
         ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: scheduleMode,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: payload,
@@ -193,6 +224,7 @@ class NotificationService {
 
   /// Cancel all notifications for a specific entry
   Future<void> cancelEntryNotifications(String entryId) async {
+    if (!_supportsPlatform) return;
     await _plugin.cancel(_stableNotifId(entryId, 0));
     await _plugin.cancel(_stableNotifId(entryId, 1));
     await _plugin.cancel(_stableNotifId(entryId, 2));
@@ -204,6 +236,7 @@ class NotificationService {
     required String body,
   }) async {
     if (!_initialized) await init();
+    if (!_supportsPlatform) return;
 
     await _plugin.show(
       999,
@@ -224,5 +257,48 @@ class NotificationService {
         ),
       ),
     );
+  }
+
+  /// Requests permission if needed and triggers an immediate test notification.
+  Future<String> showTestNotification() async {
+    await init();
+    if (!_supportsPlatform) {
+      return 'Test notifications work on Android & iOS devices.';
+    }
+    var granted = await isPermissionGranted();
+    if (!granted) {
+      granted = await requestPermission();
+    }
+    if (!granted) {
+      return 'Notification permission denied. Please enable notifications in App Settings.';
+    }
+
+    try {
+      await _plugin.show(
+        999999,
+        'Money Tracker Reminder Active',
+        'Notifications are working! You will receive reminders for your upcoming entries.',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'money_tracker_channel',
+            'Income Reminders',
+            channelDescription: 'Notifications for upcoming income',
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+            enableVibration: true,
+            playSound: true,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+      );
+      return 'Test notification sent!';
+    } catch (e) {
+      return 'Failed to send notification: $e';
+    }
   }
 }

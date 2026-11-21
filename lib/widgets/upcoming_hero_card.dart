@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/entry.dart';
 import '../providers/currency_provider.dart';
 import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
 import 'bouncy_tap.dart';
 
 class UpcomingHeroCard extends StatelessWidget {
@@ -32,18 +33,32 @@ class UpcomingHeroCard extends StatelessWidget {
     return BouncyTap(
       onPressed: onTap,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        padding: const EdgeInsets.all(24),
+        margin: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
           gradient: isDark
-              ? AppColors.headerGradientDark
-              : AppColors.headerGradient,
-          borderRadius: BorderRadius.circular(24),
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF102A1C),
+                    Color(0xFF0A1811),
+                  ],
+                )
+              : AppColors.lightForestHeroGradient,
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+          border: Border.all(
+            color: isDark
+                ? AppColors.accentMintLight.withValues(alpha: 0.28)
+                : Colors.white.withValues(alpha: 0.22),
+            width: 1.2,
+          ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primaryTeal.withValues(alpha: 0.3),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
+              color: (isDark ? Colors.black : AppColors.deepForest)
+                  .withValues(alpha: 0.28),
+              blurRadius: 22,
+              offset: const Offset(0, 10),
             ),
           ],
         ),
@@ -59,82 +74,78 @@ class UpcomingHeroCard extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.accentLime.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
+                    color: AppColors.accentMintLight.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                    border: Border.all(
+                      color: AppColors.accentMintLight.withValues(alpha: 0.35),
+                    ),
                   ),
-                  child: Row(
+                  child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
                         Icons.upcoming_rounded,
-                        color: AppColors.accentLime,
+                        color: AppColors.accentMintLight,
                         size: 14,
                       ),
-                      const SizedBox(width: 4),
+                      SizedBox(width: 4),
                       Text(
                         'NEXT INCOMING',
                         style: TextStyle(
-                          color: AppColors.accentLime,
+                          color: AppColors.accentMintLight,
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 1.2,
+                          letterSpacing: 1.1,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (onMarkReceived != null)
-                  _buildActionButton(),
+                if (onMarkReceived != null) _buildActionButton(),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             Text(
               currencyFormat.format(entry.amount),
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 36,
+                fontSize: 34,
                 fontWeight: FontWeight.w800,
-                letterSpacing: -1,
+                letterSpacing: -0.9,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               entry.title,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.92),
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 16),
-            Row(
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 _buildInfoChip(
                   icon: Icons.calendar_today_rounded,
                   label: DateFormat('dd MMM yyyy').format(entry.expectedDate),
                 ),
-                const SizedBox(width: 12),
                 _buildInfoChip(
                   icon: _getStatusIcon(),
                   label: entry.statusText,
                   color: _getStatusColor(),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
                 _buildInfoChip(
                   icon: Icons.category_rounded,
                   label: entry.type,
                 ),
-                if (entry.isRecurring) ...[
-                  const SizedBox(width: 12),
+                if (entry.isRecurring)
                   _buildInfoChip(
                     icon: Icons.repeat_rounded,
                     label: _getRecurringLabel(),
                   ),
-                ],
               ],
             ),
           ],
@@ -148,26 +159,26 @@ class UpcomingHeroCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onMarkReceived,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.white.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.5),
-              width: 1.5,
+              color: Colors.white.withValues(alpha: 0.45),
+              width: 1.2,
             ),
           ),
-          child: Row(
+          child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.download_done_rounded,
                 color: Colors.white,
-                size: 16,
+                size: 15,
               ),
-              const SizedBox(width: 4),
+              SizedBox(width: 5),
               Text(
                 'Mark Received',
                 style: TextStyle(
@@ -189,20 +200,27 @@ class UpcomingHeroCard extends StatelessWidget {
     Color? color,
   }) {
     final chipColor = color ?? Colors.white.withValues(alpha: 0.9);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: chipColor, size: 14),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: chipColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: chipColor, size: 13),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: chipColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -214,7 +232,7 @@ class UpcomingHeroCard extends StatelessWidget {
 
   Color _getStatusColor() {
     if (entry.isDueToday) return AppColors.warning;
-    if (entry.isOverdue) return AppColors.error;
+    if (entry.isOverdue) return const Color(0xFFFF8A80);
     return AppColors.accentLime;
   }
 

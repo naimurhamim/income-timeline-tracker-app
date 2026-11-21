@@ -1,394 +1,441 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/account_provider.dart';
-import '../providers/category_provider.dart';
-import '../providers/entry_provider.dart';
-import '../providers/investment_provider.dart';
+import '../providers/currency_provider.dart';
 import '../services/backup_service.dart';
-import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
+import 'glass_surface.dart';
 
-/// Account card shown at the top of Settings.
-///
-/// Guest: invites the user to sign in with Google.
-/// Signed in: shows profile, sync note and a sign-out button.
+/// Account & Data card shown in Settings for private Google Drive auto-backup
+/// and offline JSON Export / Import.
 class AccountCard extends StatelessWidget {
   const AccountCard({super.key});
 
   @override
   Widget build(BuildContext context) {
     final account = context.watch<AccountProvider>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final g = context.glass;
+    final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: isDark ? AppColors.headerGradientDark : AppColors.headerGradient,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryTeal.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-        child: account.isSignedIn
-            ? _SignedInView(account: account)
-            : _GuestView(account: account),
-      ),
-    );
-  }
-}
-
-class _GuestView extends StatelessWidget {
-  const _GuestView({required this.account});
-
-  final AccountProvider account;
-
-  @override
-  Widget build(BuildContext context) {
-    final syncing = account.status == AccountStatus.syncing;
-    final busy = account.isBusy;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
+    return GlassContainer(
+      borderRadius: AppRadius.md,
+      blur: 0,
+      elevated: account.isSignedIn,
+      borderColor: account.isSignedIn ? g.primary : g.glassBorder,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: account.isSignedIn ? g.primarySoft : g.surfaceSubtle,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: Icon(
+                  account.isSignedIn
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_outlined,
+                  color: account.isSignedIn ? g.primary : g.textSecondary,
+                  size: AppIconSize.lg,
+                ),
               ),
-              child: const Icon(Icons.cloud_upload_rounded,
-                  color: AppColors.accentLime),
-            ),
-            const SizedBox(width: 14),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Back up your data',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Private Google Drive',
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      account.isSignedIn
+                          ? 'Auto-syncs to your own Drive appDataFolder on every change'
+                          : 'Back up privately to your own Google Drive (only you have access)',
+                      style: textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (account.isSignedIn) ...[
+                const SizedBox(width: AppSpacing.sm),
+                _SyncStatusBadge(isSyncing: account.isSyncing, g: g),
+              ],
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          if (!account.isAvailable)
+            Text(
+              'Google Drive auto-sync activates on Android & iOS. Use JSON Export/Import below anytime.',
+              style: textTheme.bodySmall,
+            )
+          else if (!account.isSignedIn)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: const Key('google_sign_in_button'),
+                onPressed:
+                    account.isBusy ? null : () => _signIn(context, account),
+                icon: account.isBusy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.login_rounded, size: 18),
+                label: Text(
+                  account.isBusy ? 'Connecting...' : 'Sign in with Google',
+                ),
+              ),
+            )
+          else ...[
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: g.surfaceSubtle,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: g.primary,
+                    backgroundImage: (account.photoUrl != null &&
+                            account.photoUrl!.isNotEmpty)
+                        ? NetworkImage(account.photoUrl!)
+                        : null,
+                    child: (account.photoUrl == null ||
+                            account.photoUrl!.isEmpty)
+                        ? Text(
+                            _initial(account.displayName, account.email),
+                            style: textTheme.labelLarge?.copyWith(
+                              color: g.onPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          )
+                        : null,
                   ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Sign in with Google to keep your data safe and sync across devices.',
-                    style: TextStyle(color: Colors.white70, fontSize: 12.5),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          account.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          account.email.isNotEmpty
+                              ? account.email
+                              : 'Connected',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall,
+                        ),
+                        if (account.lastSyncedAt != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Last backup: ${DateFormat('d MMM, h:mm a').format(account.lastSyncedAt!)}',
+                            style: textTheme.labelSmall,
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
+            if (account.migrationNotice != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: g.primarySoft,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: g.glassBorder),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.verified_user_outlined,
+                      size: 16,
+                      color: g.primary,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        account.migrationNotice!,
+                        style: textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                FilledButton.icon(
+                  onPressed: account.isBusy
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final ok = await account.backupNow();
+                          if (ok) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('Google Drive backup updated.'),
+                              ),
+                            );
+                          }
+                        },
+                  icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                  label: const Text('Backup Now'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: account.isBusy
+                      ? null
+                      : () => _confirmRestore(context, account),
+                  icon: const Icon(Icons.cloud_download_outlined, size: 18),
+                  label: const Text('Restore'),
+                ),
+                TextButton.icon(
+                  key: const Key('sign_out_button'),
+                  onPressed: account.isBusy
+                      ? null
+                      : () => _confirmSignOut(context, account),
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text('Sign Out'),
+                ),
+              ],
+            ),
           ],
-        ),
-        if ((account.localEntryCount > 0 || account.localInvestmentCount > 0) &&
-            !busy) ...[
-          const SizedBox(height: 12),
-          Text(
-            _localUploadSummary(account),
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ],
-        if (syncing) ...[
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: account.syncProgress > 0 ? account.syncProgress : null,
-              minHeight: 6,
-              backgroundColor: Colors.white24,
-              color: AppColors.accentLime,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Uploading your data… Please keep the app open.',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ],
-        if (account.errorMessage != null && !busy) ...[
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: AppColors.error.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
+          const Divider(height: AppSpacing.xl),
+          const DataBackupTiles(),
+          if (account.errorMessage != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: Colors.white, size: 18),
-                const SizedBox(width: 8),
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: AppIconSize.sm,
+                  color: g.danger,
+                ),
+                const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: Text(
                     account.errorMessage!,
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: textTheme.bodySmall?.copyWith(color: g.danger),
                   ),
                 ),
               ],
             ),
-          ),
+          ],
         ],
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            key: const Key('google_sign_in_button'),
-            onPressed: busy ? null : () => _signIn(context),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF1F1F1F),
-              disabledBackgroundColor: Colors.white70,
-              padding: const EdgeInsets.symmetric(vertical: 13),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              elevation: 0,
-            ),
-            child: busy
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: AppColors.primaryTeal,
-                    ),
-                  )
-                : const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'G',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF4285F4),
-                        ),
-                      ),
-                      SizedBox(width: 10),
-                      Text(
-                        'Sign in with Google',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  String _localUploadSummary(AccountProvider account) {
-    final entries = account.localEntryCount;
-    final investments = account.localInvestmentCount;
-    final entryPart =
-        entries > 0 ? '$entries ${entries == 1 ? 'entry' : 'entries'}' : null;
-    final invPart = investments > 0
-        ? '$investments ${investments == 1 ? 'investment' : 'investments'}'
-        : null;
-    final parts = [?entryPart, ?invPart];
-    return '${parts.join(' and ')} on this device will be uploaded to your account.';
+  static String _initial(String name, String email) {
+    final src = name.trim().isNotEmpty
+        ? name.trim()
+        : (email.trim().isNotEmpty ? email.trim() : 'M');
+    return src.substring(0, 1).toUpperCase();
   }
 
-  Future<void> _signIn(BuildContext context) async {
+  Future<void> _signIn(BuildContext context, AccountProvider account) async {
     final messenger = ScaffoldMessenger.of(context);
     final ok = await account.signIn();
     if (ok) {
       messenger.showSnackBar(
-        SnackBar(content: Text('Signed in as ${account.email}')),
+        SnackBar(
+          content: Text(
+            account.email.isNotEmpty
+                ? 'Signed in as ${account.email} · Private Drive connected'
+                : 'Connected to your private Google Drive.',
+          ),
+        ),
       );
     }
   }
-}
 
-class _SignedInView extends StatelessWidget {
-  const _SignedInView({required this.account});
-
-  final AccountProvider account;
-
-  @override
-  Widget build(BuildContext context) {
-    final photo = account.photoUrl;
-    final initial = account.displayName.isNotEmpty
-        ? account.displayName[0].toUpperCase()
-        : '?';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: AppColors.accentLime,
-              backgroundImage: photo != null ? NetworkImage(photo) : null,
-              child: photo == null
-                  ? Text(
-                      initial,
-                      style: const TextStyle(
-                        color: AppColors.primaryTeal,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 20,
-                      ),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    account.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    account.email,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_done_rounded,
-                  color: AppColors.accentLime, size: 16),
-              SizedBox(width: 6),
-              Text(
-                'Cloud sync on · works offline too',
-                style: TextStyle(color: Colors.white, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            key: const Key('sign_out_button'),
-            onPressed: () => _confirmSignOut(context),
-            icon: const Icon(Icons.logout_rounded, size: 18),
-            label: const Text('Sign out'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white54),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _confirmSignOut(BuildContext context) async {
+  Future<void> _confirmRestore(
+    BuildContext context,
+    AccountProvider account,
+  ) async {
+    final g = context.glass;
     final messenger = ScaffoldMessenger.of(context);
-    final unsynced = await account.hasUnsyncedChanges();
-    if (!context.mounted) return;
-
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Sign out?'),
-        content: Text(
-          unsynced
-              ? 'Some changes have not synced yet. Signing out now will lose them. '
-                  'Connect to the internet and try again to keep them.'
-              : 'Your data stays safe in your Google account and will come back '
-                  'when you sign in again. It will be removed from this device.',
+        backgroundColor: g.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: g.glassBorder),
+        ),
+        title: const Text('Restore from Google Drive?'),
+        content: const Text(
+          'Replace current on-device entries, investments, categories, and currency with the snapshot in your private Google Drive?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: unsynced ? AppColors.error : null,
-            ),
-            child: Text(unsynced ? 'Sign out anyway' : 'Sign out'),
+            child: const Text('Restore'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) return;
-    await account.signOut();
-    messenger.showSnackBar(const SnackBar(content: Text('Signed out')));
+    if (confirmed == true) {
+      final ok = await account.restoreFromDrive();
+      if (ok) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Restored from Google Drive.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmSignOut(
+    BuildContext context,
+    AccountProvider account,
+  ) async {
+    final g = context.glass;
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: g.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: g.glassBorder),
+        ),
+        title: const Text('Sign out of Google?'),
+        content: const Text(
+          'Your data remains safely stored on this device and in your private Google Drive. Auto-backup will pause until you sign in again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await account.signOut();
+      messenger.showSnackBar(const SnackBar(content: Text('Signed out')));
+    }
   }
 }
 
-/// Export / import tiles used in the Settings "Data" section.
-class DataBackupTiles extends StatelessWidget {
-  const DataBackupTiles({super.key, required this.iconColor});
+class _SyncStatusBadge extends StatelessWidget {
+  const _SyncStatusBadge({required this.isSyncing, required this.g});
 
-  final Color iconColor;
+  final bool isSyncing;
+  final GlassTokens g;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final trailing = Icon(
-      Icons.arrow_forward_ios_rounded,
-      size: 14,
-      color: theme.textTheme.bodySmall?.color,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: g.primarySoft,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: g.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isSyncing)
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: g.primary,
+              ),
+            )
+          else
+            Icon(Icons.check_rounded, size: 14, color: g.success),
+          const SizedBox(width: 5),
+          Text(
+            isSyncing ? 'Syncing...' : 'Synced',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: isSyncing ? g.primary : g.success,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
     );
+  }
+}
+
+/// Offline JSON Export & Merge / Replace Import controls.
+class DataBackupTiles extends StatelessWidget {
+  const DataBackupTiles({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final account = context.watch<AccountProvider>();
+    final g = context.glass;
+    final textTheme = Theme.of(context).textTheme;
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ListTile(
-          key: const Key('export_data_tile'),
-          leading: Icon(Icons.file_upload_outlined, color: iconColor),
-          title: const Text('Export Data'),
-          subtitle: const Text('Save a backup file (JSON)'),
-          trailing: trailing,
-          onTap: () => _export(context),
+        Text(
+          'Local Data Export & Import',
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
-        const Divider(height: 1),
-        ListTile(
-          key: const Key('import_data_tile'),
-          leading: Icon(Icons.file_download_outlined, color: iconColor),
-          title: const Text('Import Data'),
-          subtitle: const Text('Restore from a backup file'),
-          trailing: trailing,
-          onTap: () => _import(context),
+        const SizedBox(height: 2),
+        Text(
+          'Save an offline JSON copy of your entries, investments, and categories or restore from any backup file.',
+          style: textTheme.bodySmall?.copyWith(color: g.textSecondary),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            OutlinedButton.icon(
+              key: const Key('export_data_tile'),
+              onPressed: account.isBusy ? null : () => _export(context),
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('Export JSON'),
+            ),
+            OutlinedButton.icon(
+              key: const Key('import_data_tile'),
+              onPressed: account.isBusy ? null : () => _import(context),
+              icon: const Icon(Icons.upload_file_outlined, size: 18),
+              label: const Text('Import JSON'),
+            ),
+          ],
         ),
       ],
     );
@@ -396,8 +443,12 @@ class DataBackupTiles extends StatelessWidget {
 
   Future<void> _export(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
+    final currency = context.read<CurrencyProvider>();
     try {
-      await BackupService.instance.exportToJson();
+      await BackupService.instance.exportToJson(currencyCode: currency.code);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Backup JSON ready.')),
+      );
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Export failed: $e')),
@@ -407,30 +458,62 @@ class DataBackupTiles extends StatelessWidget {
 
   Future<void> _import(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final entries = context.read<EntryProvider>();
-    final categories = context.read<CategoryProvider>();
-    final investments = context.read<InvestmentProvider>();
+    final currency = context.read<CurrencyProvider>();
+    final account = context.read<AccountProvider>();
+    final g = context.glass;
+
     try {
-      final result = await BackupService.instance.importFromJson();
-      if (result.entries == 0 &&
-          result.categories == 0 &&
-          result.investments == 0 &&
-          result.skipped == 0) {
-        return;
-      }
-      await categories.loadCategories();
-      await entries.loadAll();
-      await investments.loadInvestments();
+      final parsed = await BackupService.instance.pickBackupFile();
+      if (parsed == null || !context.mounted) return;
+
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: g.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            side: BorderSide(color: g.glassBorder),
+          ),
+          title: const Text('Import Backup File'),
+          content: Text(
+            'Found ${parsed.entries.length} entries, ${parsed.investments.length} investments, and ${parsed.categories.length} categories.\n\n'
+            'Merge adds missing items without duplicates. Replace overwrites on-device data with this file.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(ctx, 'replace'),
+              child: const Text('Replace'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, 'merge'),
+              child: const Text('Merge'),
+            ),
+          ],
+        ),
+      );
+
+      if (choice == null || !context.mounted) return;
+
+      final result = await BackupService.instance.applyBackup(
+        parsed,
+        merge: choice == 'merge',
+        currencyProvider: currency,
+      );
+      await account.reloadAfterImport();
+
       final skippedText = result.skipped > 0
           ? ' (${result.skipped} duplicates skipped)'
-          : '';
-      final investmentText = result.investments > 0
-          ? ', ${result.investments} investments'
           : '';
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            'Imported ${result.entries} entries$investmentText and ${result.categories} categories$skippedText',
+            choice == 'merge'
+                ? 'Merged ${result.entries} entries, ${result.investments} investments & ${result.categories} categories$skippedText'
+                : 'Restored ${result.entries} entries & ${result.investments} investments from file.',
           ),
         ),
       );

@@ -1,40 +1,45 @@
-import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../data/data_repository.dart';
-import '../models/category.dart';
-import '../models/entry.dart';
-import '../models/investment.dart';
+import '../models/cloud_backup_payload.dart';
+import '../providers/currency_provider.dart';
 
-/// Handles JSON export and import for guest/offline users.
+/// Handles offline JSON export and Merge / Replace import.
 class BackupService {
   BackupService._();
   static final BackupService instance = BackupService._();
 
   DataRepository get _repo => DataStore.instance.repo;
 
-  // ═══════════════════════════════════
-  // Export
-  // ═══════════════════════════════════
-
-  /// Exports all data to a JSON file and opens the system share sheet.
-  Future<String?> exportToJson() async {
+  /// Exports all categories, entries, investments, and currency to JSON and shares it.
+  Future<String?> exportToJson({String? currencyCode}) async {
     try {
       final categories = await _repo.getCategories();
       final entries = await _repo.getEntries();
       final investments = await _repo.getInvestments();
 
-      final data = {
-        'app': 'money_tracker',
-        'version': 2,
-        'createdAt': DateTime.now().toIso8601String(),
-        'categories': categories.map((c) => c.toMap()).toList(),
-        'entries': entries.map((e) => e.toMap()).toList(),
-        'investments': investments.map((i) => i.toMap()).toList(),
-      };
+      var effectiveCurrency = currencyCode;
+      if (effectiveCurrency == null || effectiveCurrency.isEmpty) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          effectiveCurrency = prefs.getString('currency_code') ?? 'BDT';
+        } catch (_) {
+          effectiveCurrency = 'BDT';
+        }
+      }
+
+      final payload = CloudBackupPayload(
+        schemaVersion: 3,
+        updatedAt: DateTime.now(),
+        currencyCode: effectiveCurrency,
+        categories: categories,
+        entries: entries,
+        investments: investments,
+      );
 
       final dir = await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now()
@@ -43,9 +48,8 @@ class BackupService {
           .split('.')
           .first;
       final file = File('${dir.path}/money_tracker_export_$timestamp.json');
-      await file.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+      await file.writeAsString(payload.toJsonString(pretty: true));
 
-      // Open share sheet
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
@@ -60,83 +64,76 @@ class BackupService {
     }
   }
 
-  // ═══════════════════════════════════
-  // Import
-  // ═══════════════════════════════════
-
-  /// Lets the user pick a JSON file and merges it into the current repository.
-  /// Returns the number of records imported.
-  Future<({int categories, int entries, int investments, int skipped})>
-      importFromJson() async {
+  /// Opens the file picker and parses a v2 or v3 MoneyTracker JSON backup.
+  /// Returns `null` if cancelled by the user.
+  Future<CloudBackupPayload?> pickBackupFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
-    if (result == null || result.files.isEmpty) {
-      return (categories: 0, entries: 0, investments: 0, skipped: 0);
-    }
+    if (result == null || result.files.isEmpty) return null;
 
     final path = result.files.single.path;
-    if (path == null) {
-      return (categories: 0, entries: 0, investments: 0, skipped: 0);
-    }
+    if (path == null) return null;
 
-    final file = File(path);
-    final content = await file.readAsString();
-    final decoded = jsonDecode(content);
-    if (decoded is! Map<String, dynamic> ||
-        (decoded['entries'] is! List &&
-            decoded['categories'] is! List &&
-            decoded['investments'] is! List)) {
-      throw const FormatException('This is not a Money Tracker backup file.');
-    }
-    final data = decoded;
+    final content = await File(path).readAsString();
+    if (content.trim().isEmpty) return null;
+    return CloudBackupPayload.fromJsonString(content);
+  }
 
-    final rawCategories = data['categories'] as List<dynamic>? ?? [];
-    final rawEntries = data['entries'] as List<dynamic>? ?? [];
-    final rawInvestments = data['investments'] as List<dynamic>? ?? [];
-
-    final categories = <CategoryModel>[];
-    for (final raw in rawCategories) {
-      try {
-        categories.add(CategoryModel.fromMap(raw as Map<String, dynamic>));
-      } catch (e) {
-        debugPrint('Skipping invalid category during import: $e');
-      }
-    }
-
-    final entries = <EntryModel>[];
-    for (final raw in rawEntries) {
-      try {
-        entries.add(EntryModel.fromMap(raw as Map<String, dynamic>));
-      } catch (e) {
-        debugPrint('Skipping invalid entry during import: $e');
-      }
-    }
-
-    final investments = <InvestmentModel>[];
-    for (final raw in rawInvestments) {
-      try {
-        investments.add(InvestmentModel.fromMap(raw as Map<String, dynamic>));
-      } catch (e) {
-        debugPrint('Skipping invalid investment during import: $e');
-      }
-    }
-
+  /// Applies [payload] using either deduplicating Merge or full Replace.
+  Future<({int categories, int entries, int investments, int skipped})>
+      applyBackup(
+    CloudBackupPayload payload, {
+    required bool merge,
+    CurrencyProvider? currencyProvider,
+  }) async {
     final repo = _repo;
+    if (!merge) {
+      await repo.clearAll();
+      final customCats =
+          payload.categories.where((c) => !c.isDefault).toList();
+      await repo.saveAll(
+        categories: customCats,
+        entries: payload.entries,
+        investments: payload.investments,
+      );
+      if (currencyProvider != null && payload.currencyCode.isNotEmpty) {
+        await currencyProvider.applyRestoredCurrency(payload.currencyCode);
+      }
+      return (
+        categories: customCats.length,
+        entries: payload.entries.length,
+        investments: payload.investments.length,
+        skipped: 0,
+      );
+    }
+
+    final existingCats = await repo.getCategories();
+    final existingEntries = await repo.getEntries();
+    final existingInvestments = await repo.getInvestments();
+
     final merged = mergeIncoming(
-      existing: await repo.getCategories(),
-      existingEntries: await repo.getEntries(),
-      existingInvestments: await repo.getInvestments(),
-      incomingCategories: categories,
-      incomingEntries: entries,
-      incomingInvestments: investments,
+      existing: existingCats,
+      existingEntries: existingEntries,
+      existingInvestments: existingInvestments,
+      incomingCategories: payload.categories,
+      incomingEntries: payload.entries,
+      incomingInvestments: payload.investments,
     );
+
     await repo.saveAll(
       categories: merged.categories,
       entries: merged.entries,
       investments: merged.investments,
     );
+
+    if (currencyProvider != null &&
+        payload.currencyCode.isNotEmpty &&
+        payload.currencyCode != 'BDT' &&
+        currencyProvider.code == 'BDT') {
+      await currencyProvider.applyRestoredCurrency(payload.currencyCode);
+    }
 
     return (
       categories: merged.categories.length,

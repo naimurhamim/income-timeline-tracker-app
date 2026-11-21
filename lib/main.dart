@@ -1,11 +1,11 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'data/cloud_repository.dart';
-import 'data/data_repository.dart';
 import 'database/database_helper.dart';
+import 'data/data_repository.dart';
+import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 import 'providers/account_provider.dart';
 import 'providers/entry_provider.dart';
@@ -18,27 +18,27 @@ import 'screens/home_shell.dart';
 import 'screens/lock_screen.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
+import 'widgets/glass_surface.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set preferred orientations
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // Pick the storage before any provider is created: cloud if a Google
-  // session is restored, otherwise local SQLite (guest mode).
-  DataRepository initialRepo = DatabaseHelper();
+  // Initialize Firebase once so legacy v2.x users can auto-migrate their
+  // existing Firestore data safely into on-device SQLite.
   try {
     await Firebase.initializeApp();
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) initialRepo = CloudRepository(user.uid);
   } catch (e) {
-    debugPrint('Firebase init failed, using local storage: $e');
+    debugPrint('Firebase init skipped: $e');
   }
-  DataStore.init(initialRepo);
+
+  // Always use local SQLite as the active on-device repository; private Google
+  // Drive syncs the complete snapshot automatically when signed in.
+  DataStore.init(DatabaseHelper());
 
   runApp(const MoneyTrackerApp());
 }
@@ -61,25 +61,27 @@ class MoneyTrackerApp extends StatelessWidget {
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
-          // Set system UI overlay style based on theme
-          SystemChrome.setSystemUIOverlayStyle(
-            themeProvider.isDark
-                ? SystemUiOverlayStyle.light.copyWith(
-                    statusBarColor: Colors.transparent,
-                    systemNavigationBarColor: const Color(0xFF152D3A),
-                  )
-                : SystemUiOverlayStyle.dark.copyWith(
-                    statusBarColor: Colors.transparent,
-                    systemNavigationBarColor: Colors.white,
-                  ),
-          );
-
           return MaterialApp(
             title: 'Money Tracker',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
             themeMode: themeProvider.themeMode,
+            builder: (context, child) {
+              final dark = Theme.of(context).brightness == Brightness.dark;
+              SystemChrome.setSystemUIOverlayStyle(
+                dark
+                    ? SystemUiOverlayStyle.light.copyWith(
+                        statusBarColor: Colors.transparent,
+                        systemNavigationBarColor: AppColors.backgroundDark,
+                      )
+                    : SystemUiOverlayStyle.dark.copyWith(
+                        statusBarColor: Colors.transparent,
+                        systemNavigationBarColor: AppColors.backgroundLight,
+                      ),
+              );
+              return child ?? const SizedBox.shrink();
+            },
             home: const AppInitializer(),
           );
         },
@@ -88,7 +90,7 @@ class MoneyTrackerApp extends StatelessWidget {
   }
 }
 
-/// Initializes data before showing the main app
+/// Initializes local storage, one-time legacy Firebase migration, and Drive sync.
 class AppInitializer extends StatefulWidget {
   const AppInitializer({super.key});
 
@@ -107,7 +109,7 @@ class _AppInitializerState extends State<AppInitializer>
     super.initState();
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 650),
     );
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
@@ -126,48 +128,57 @@ class _AppInitializerState extends State<AppInitializer>
 
   Future<void> _initializeApp() async {
     try {
-      // Get all providers before any awaits (BuildContext safety)
+      final themeProvider =
+          Provider.of<ThemeProvider>(context, listen: false);
       final categoryProvider =
           Provider.of<CategoryProvider>(context, listen: false);
       final entryProvider =
           Provider.of<EntryProvider>(context, listen: false);
       final investmentProvider =
           Provider.of<InvestmentProvider>(context, listen: false);
+      final currencyProvider =
+          Provider.of<CurrencyProvider>(context, listen: false);
       final authService = Provider.of<AuthService>(context, listen: false);
       final notifProvider =
           Provider.of<NotificationProvider>(context, listen: false);
       final accountProvider =
           Provider.of<AccountProvider>(context, listen: false);
 
-      await categoryProvider.loadCategories(preferServer: true);
-      await entryProvider.loadAll(preferServer: true);
-      await investmentProvider.loadInvestments(preferServer: true);
+      await themeProvider.init();
+      await currencyProvider.init();
 
-      // Restore Google account state
-      try {
-        await accountProvider.init();
-      } catch (e) {
+      accountProvider.bindProviders(
+        categories: categoryProvider,
+        entries: entryProvider,
+        investments: investmentProvider,
+        currency: currencyProvider,
+      );
+
+      // Migrate any existing v2.x Firebase data locally before loading UI data.
+      await accountProvider.migrateLegacyFirebaseOnStartupIfNeeded(
+        currencyProvider: currencyProvider,
+      );
+
+      await categoryProvider.loadCategories();
+      await entryProvider.loadAll();
+      await investmentProvider.loadInvestments();
+
+      // Silent Google Drive restore/reconcile runs in background.
+      unawaited(accountProvider.init().catchError((Object e) {
         debugPrint('Account init failed: $e');
-      }
+      }));
 
-      // Initialize auth
       await authService.init();
 
-      // Initialize in-app notification state
       await notifProvider.init();
       notifProvider.generateFromEntries(entryProvider.upcomingEntries);
 
-      // Initialize system notifications
       final notificationService = NotificationService();
       await notificationService.init();
-
-      // Request permission (Android 13+)
       final hasPermission = await notificationService.isPermissionGranted();
       if (!hasPermission) {
         await notificationService.requestPermission();
       }
-
-      // Schedule system notifications for all upcoming entries
       await notificationService
           .scheduleAllEntryNotifications(entryProvider.upcomingEntries);
 
@@ -204,77 +215,47 @@ class _AppInitializerState extends State<AppInitializer>
   }
 
   Widget _buildSplashScreen() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          gradient: isDark
-              ? const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF0F2633), Color(0xFF0A1A24)],
-                )
-              : const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF1B3A4B), Color(0xFF2D5F4F)],
-                ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // App Icon
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+      backgroundColor: Colors.transparent,
+      body: GlassBackdrop(
+        child: Center(
+          child: GlassContainer(
+            borderRadius: 28,
+            blur: 14,
+            elevated: true,
+            padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AppLogoMark(size: 88),
+                const SizedBox(height: 20),
+                Text(
+                  'Money Tracker',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
                   ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: Image.asset(
-                  'assets/images/app_icon.png',
-                  fit: BoxFit.cover,
                 ),
-              ),
+                const SizedBox(height: 6),
+                Text(
+                  'Track your income & principal wealth',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.8,
+                    color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Money Tracker',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Track your income timeline',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.7),
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 40),
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: Color(0xFFA8E06C),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

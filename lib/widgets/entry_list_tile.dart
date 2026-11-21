@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../models/entry.dart';
 import '../providers/currency_provider.dart';
 import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
 import 'bouncy_tap.dart';
+import 'glass_surface.dart';
 
 class EntryListTile extends StatelessWidget {
   final EntryModel entry;
@@ -21,6 +23,7 @@ class EntryListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final g = context.glass;
     final currency = context.watch<CurrencyProvider>();
     final currencyFormat = NumberFormat.currency(
       locale: currency.locale,
@@ -28,119 +31,112 @@ class EntryListTile extends StatelessWidget {
       decimalDigits: 0,
     );
 
-    return BouncyTap(
-      onPressed: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: entry.isOverdue
-              ? Border.all(
-                  color: AppColors.error.withValues(alpha: 0.3),
-                  width: 1,
-                )
-              : null,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            // Priority indicator + Type icon
-            _buildLeadingIcon(theme),
-            const SizedBox(width: 14),
-
-            // Title, type, date
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          entry.title,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            decoration:
-                                entry.isReceived ? TextDecoration.lineThrough : null,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 5),
+      child: BouncyTap(
+        onPressed: onTap,
+        child: GlassContainer(
+          borderRadius: AppRadius.lg,
+          blur: 0,
+          elevated: true,
+          borderColor: entry.isOverdue
+              ? g.danger.withValues(alpha: 0.4)
+              : g.glassBorder,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              _buildLeadingIcon(context, theme),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            entry.title,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              decoration: entry.isReceived
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildPriorityTag(),
-                    ],
+                        const SizedBox(width: 8),
+                        _buildPriorityTag(),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        _buildTypeBadge(theme),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.calendar_today_rounded,
+                          size: 12,
+                          color: g.textSecondary,
+                        ),
+                        const SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            DateFormat('dd MMM yy').format(entry.expectedDate),
+                            style: theme.textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (entry.isRecurring) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.repeat_rounded,
+                            size: 13,
+                            color: g.primary,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    currencyFormat.format(entry.amount),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: entry.isReceived ? g.success : g.textPrimary,
+                    ),
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      _buildTypeBadge(theme),
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.calendar_today_rounded,
-                        size: 12,
-                        color: theme.textTheme.bodySmall?.color,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        DateFormat('dd MMM yy').format(entry.expectedDate),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      if (entry.isRecurring) ...[
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.repeat_rounded,
-                          size: 12,
-                          color: AppColors.accentLime,
-                        ),
-                      ],
-                    ],
-                  ),
+                  _buildStatusBadge(context),
                 ],
               ),
-            ),
-
-            // Amount + Status
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  currencyFormat.format(entry.amount),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: entry.isReceived
-                        ? AppColors.success
-                        : theme.textTheme.titleMedium?.color,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                _buildStatusBadge(theme),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildLeadingIcon(ThemeData theme) {
-    final iconColor = _getCategoryColor(theme);
+  Widget _buildLeadingIcon(BuildContext context, ThemeData theme) {
+    final g = context.glass;
     final isDark = theme.brightness == Brightness.dark;
+    final iconColor = _getCategoryColor(isDark);
 
     return Container(
       width: 44,
       height: 44,
       decoration: BoxDecoration(
-        color: iconColor.withValues(alpha: isDark ? 0.2 : 0.1),
-        borderRadius: BorderRadius.circular(12),
+        color: iconColor.withValues(alpha: isDark ? 0.22 : 0.12),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: iconColor.withValues(alpha: isDark ? 0.42 : 0.2),
+        ),
       ),
       child: Stack(
         children: [
@@ -159,12 +155,9 @@ class EntryListTile extends StatelessWidget {
                 width: 16,
                 height: 16,
                 decoration: BoxDecoration(
-                  color: AppColors.success,
+                  color: g.success,
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: theme.colorScheme.surface,
-                    width: 2,
-                  ),
+                  border: Border.all(color: g.surface, width: 2),
                 ),
                 child: const Icon(
                   Icons.check,
@@ -180,37 +173,38 @@ class EntryListTile extends StatelessWidget {
 
   Widget _buildTypeBadge(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
+    final badgeColor =
+        isDark ? AppColors.accentMintLight : AppColors.deepForest;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: isDark
-            ? AppColors.accentLime.withValues(alpha: 0.2)
-            : AppColors.accentLime.withValues(alpha: 0.15),
+        color: badgeColor.withValues(alpha: isDark ? 0.18 : 0.12),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         entry.type,
         style: TextStyle(
-          color: isDark ? AppColors.accentLime : AppColors.secondaryGreen,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
+          color: badgeColor,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
 
-  Widget _buildStatusBadge(ThemeData theme) {
-    Color color;
-    String text;
+  Widget _buildStatusBadge(BuildContext context) {
+    final g = context.glass;
+    final Color color;
+    final String text;
 
     if (entry.isReceived) {
-      color = AppColors.success;
+      color = g.success;
       text = 'Received';
     } else if (entry.isDueToday) {
-      color = AppColors.warning;
+      color = g.warning;
       text = 'Due Today';
     } else if (entry.isOverdue) {
-      color = AppColors.error;
+      color = g.danger;
       text = 'Overdue';
     } else {
       color = AppColors.info;
@@ -220,15 +214,15 @@ class EntryListTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         text,
         style: TextStyle(
           color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -251,28 +245,27 @@ class EntryListTile extends StatelessWidget {
     }
   }
 
-  Color _getCategoryColor(ThemeData theme) {
-    final isDark = theme.brightness == Brightness.dark;
+  Color _getCategoryColor(bool isDark) {
     switch (entry.type.toLowerCase()) {
       case 'fd':
-        return isDark ? Colors.cyanAccent : AppColors.primaryTeal;
+        return AppColors.adaptiveColor(AppColors.primaryTeal, isDark);
       case 'savings':
-        return isDark ? AppColors.accentLime : AppColors.secondaryGreen;
+        return AppColors.adaptiveColor(AppColors.secondaryGreen, isDark);
       case 'dps':
-        return isDark ? Colors.lightBlueAccent : AppColors.info;
+        return AppColors.adaptiveColor(AppColors.info, isDark);
       case 'bond':
-        return isDark ? Colors.purpleAccent : const Color(0xFFAB47BC);
+        return AppColors.adaptiveColor(const Color(0xFFAB47BC), isDark);
       case 'insurance':
-        return isDark ? Colors.orangeAccent : AppColors.warning;
+        return AppColors.adaptiveColor(AppColors.warning, isDark);
       default:
-        return AppColors.accentLime;
+        return AppColors.adaptiveColor(AppColors.primaryTeal, isDark);
     }
   }
 
   Widget _buildPriorityTag() {
-    String label = '';
-    Color color = AppColors.primaryTeal;
-    
+    var label = '';
+    var color = AppColors.primaryTeal;
+
     switch (entry.priority) {
       case 3:
         label = 'H';
@@ -293,16 +286,16 @@ class EntryListTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5), width: 0.5),
+        border: Border.all(color: color.withValues(alpha: 0.45), width: 0.6),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: color,
           fontSize: 9,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );

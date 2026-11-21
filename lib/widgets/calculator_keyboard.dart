@@ -1,6 +1,9 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
 
 /// Pure arithmetic evaluator used by the custom calculator keyboard.
 class CalculatorEvaluator {
@@ -270,6 +273,7 @@ class _CalculatorBottomSheetState extends State<_CalculatorBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final g = context.glass;
     final isDark = theme.brightness == Brightness.dark;
     final evaluated = CalculatorEvaluator.evaluate(_expression);
     final initial = widget.initialValue;
@@ -277,267 +281,284 @@ class _CalculatorBottomSheetState extends State<_CalculatorBottomSheet> {
     final diff = (hasInitial && evaluated != null) ? evaluated - initial : 0.0;
     final hasValidResult = evaluated != null && evaluated >= 0;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Drag handle
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(2),
-            ),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: g.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border(top: BorderSide(color: g.glassBorder, width: 1.2)),
           ),
-          const SizedBox(height: 10),
-
-          // Title bar
-          Row(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.calculate_rounded, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  widget.title?.isNotEmpty == true
-                      ? widget.title!
-                      : 'Calculate Amount',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              // Drag handle
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded),
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Close',
-              ),
-            ],
-          ),
+              const SizedBox(height: 10),
 
-          // Display box
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (hasInitial) ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Current: ${widget.formatAmount(initial)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
+              // Title bar
+              Row(
+                children: [
+                  Icon(Icons.calculate_rounded, size: 20, color: g.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.title?.isNotEmpty == true
+                          ? widget.title!
+                          : 'Calculate Amount',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
-                      if (evaluated != null && diff.abs() >= 0.01)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: (diff > 0
-                                    ? AppColors.success
-                                    : AppColors.error)
-                                .withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            diff > 0
-                                ? '+${widget.formatAmount(diff)}'
-                                : '-${widget.formatAmount(diff.abs())}',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: diff > 0
-                                  ? AppColors.success
-                                  : AppColors.error,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+
+              // Display box
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: g.surfaceSubtle,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: g.glassBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (hasInitial) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Current: ${widget.formatAmount(initial)}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                        ),
+                          if (evaluated != null && diff.abs() >= 0.01)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: (diff > 0
+                                        ? AppColors.success
+                                        : AppColors.error)
+                                    .withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                diff > 0
+                                    ? '+${widget.formatAmount(diff)}'
+                                    : '-${widget.formatAmount(diff.abs())}',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: diff > 0
+                                      ? AppColors.success
+                                      : AppColors.error,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  reverse: true,
-                  child: Text(
-                    _expression,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.textTheme.bodySmall?.color,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                if (evaluated == null)
-                  const Text(
-                    'Cannot divide by zero',
-                    style: TextStyle(
-                      color: AppColors.error,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                else if (evaluated < 0)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        '${widget.currencySymbol}${CalculatorEvaluator.formatNumber(evaluated)}',
-                        style: const TextStyle(
-                          color: AppColors.error,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      child: Text(
+                        _expression,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: g.textSecondary,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.5,
                         ),
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    if (evaluated == null)
                       const Text(
-                        'Amount cannot be negative',
+                        'Cannot divide by zero',
                         style: TextStyle(
                           color: AppColors.error,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      )
+                    else if (evaluated < 0)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${widget.currencySymbol}${CalculatorEvaluator.formatNumber(evaluated)}',
+                            style: const TextStyle(
+                              color: AppColors.error,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const Text(
+                            'Amount cannot be negative',
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          widget.formatAmount(evaluated),
+                          style: theme.textTheme.displayMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: g.primary,
+                          ),
                         ),
                       ),
-                    ],
-                  )
-                else
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      widget.formatAmount(evaluated),
-                      style: theme.textTheme.displayMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: isDark
-                            ? AppColors.accentLime
-                            : AppColors.primaryTeal,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
 
-          // Keypad rows
-          _buildRow([
-            _KeySpec(
-              label: 'C',
-              color: AppColors.error.withValues(alpha: 0.14),
-              textColor: AppColors.error,
-              onTap: _onClear,
-            ),
-            _KeySpec(
-              icon: Icons.backspace_outlined,
-              color: isDark ? AppColors.surfaceDark : AppColors.backgroundLight,
-              onTap: _onBackspace,
-            ),
-            _KeySpec(
-              label: '÷',
-              isOperator: true,
-              onTap: () => _onOperator('÷'),
-            ),
-            _KeySpec(
-              label: '×',
-              isOperator: true,
-              onTap: () => _onOperator('×'),
-            ),
-          ], theme, isDark),
-          const SizedBox(height: 8),
-          _buildRow([
-            _KeySpec(label: '7', onTap: () => _onDigit('7')),
-            _KeySpec(label: '8', onTap: () => _onDigit('8')),
-            _KeySpec(label: '9', onTap: () => _onDigit('9')),
-            _KeySpec(
-              label: '-',
-              isOperator: true,
-              onTap: () => _onOperator('-'),
-            ),
-          ], theme, isDark),
-          const SizedBox(height: 8),
-          _buildRow([
-            _KeySpec(label: '4', onTap: () => _onDigit('4')),
-            _KeySpec(label: '5', onTap: () => _onDigit('5')),
-            _KeySpec(label: '6', onTap: () => _onDigit('6')),
-            _KeySpec(
-              label: '+',
-              isOperator: true,
-              onTap: () => _onOperator('+'),
-            ),
-          ], theme, isDark),
-          const SizedBox(height: 8),
-          _buildRow([
-            _KeySpec(label: '1', onTap: () => _onDigit('1')),
-            _KeySpec(label: '2', onTap: () => _onDigit('2')),
-            _KeySpec(label: '3', onTap: () => _onDigit('3')),
-            _KeySpec(
-              label: '=',
-              isOperator: true,
-              onTap: _onEquals,
-            ),
-          ], theme, isDark),
-          const SizedBox(height: 8),
-          _buildRow([
-            _KeySpec(label: '00', onTap: () => _onDigit('00')),
-            _KeySpec(label: '0', onTap: () => _onDigit('0')),
-            _KeySpec(label: '.', onTap: _onDecimal),
-            _KeySpec(
-              label: 'Done',
-              icon: Icons.check_rounded,
-              color: hasValidResult
-                  ? AppColors.accentLime
-                  : Colors.grey.withValues(alpha: 0.25),
-              textColor: hasValidResult
-                  ? AppColors.primaryTeal
-                  : theme.textTheme.bodySmall?.color,
-              onTap: hasValidResult ? () => _onDone(evaluated) : null,
-            ),
-          ], theme, isDark),
-        ],
+              // Keypad rows
+              _buildRow([
+                _KeySpec(
+                  label: 'C',
+                  color: AppColors.error.withValues(alpha: 0.14),
+                  textColor: AppColors.error,
+                  onTap: _onClear,
+                ),
+                _KeySpec(
+                  icon: Icons.backspace_outlined,
+                  color: g.surfaceSubtle,
+                  onTap: _onBackspace,
+                ),
+                _KeySpec(
+                  label: '÷',
+                  isOperator: true,
+                  onTap: () => _onOperator('÷'),
+                ),
+                _KeySpec(
+                  label: '×',
+                  isOperator: true,
+                  onTap: () => _onOperator('×'),
+                ),
+              ], theme, g, isDark),
+              const SizedBox(height: 8),
+              _buildRow([
+                _KeySpec(label: '7', onTap: () => _onDigit('7')),
+                _KeySpec(label: '8', onTap: () => _onDigit('8')),
+                _KeySpec(label: '9', onTap: () => _onDigit('9')),
+                _KeySpec(
+                  label: '-',
+                  isOperator: true,
+                  onTap: () => _onOperator('-'),
+                ),
+              ], theme, g, isDark),
+              const SizedBox(height: 8),
+              _buildRow([
+                _KeySpec(label: '4', onTap: () => _onDigit('4')),
+                _KeySpec(label: '5', onTap: () => _onDigit('5')),
+                _KeySpec(label: '6', onTap: () => _onDigit('6')),
+                _KeySpec(
+                  label: '+',
+                  isOperator: true,
+                  onTap: () => _onOperator('+'),
+                ),
+              ], theme, g, isDark),
+              const SizedBox(height: 8),
+              _buildRow([
+                _KeySpec(label: '1', onTap: () => _onDigit('1')),
+                _KeySpec(label: '2', onTap: () => _onDigit('2')),
+                _KeySpec(label: '3', onTap: () => _onDigit('3')),
+                _KeySpec(
+                  label: '=',
+                  isOperator: true,
+                  onTap: _onEquals,
+                ),
+              ], theme, g, isDark),
+              const SizedBox(height: 8),
+              _buildRow([
+                _KeySpec(label: '00', onTap: () => _onDigit('00')),
+                _KeySpec(label: '0', onTap: () => _onDigit('0')),
+                _KeySpec(label: '.', onTap: _onDecimal),
+                _KeySpec(
+                  label: 'Done',
+                  icon: Icons.check_rounded,
+                  color: hasValidResult
+                      ? AppColors.accentLime
+                      : Colors.grey.withValues(alpha: 0.25),
+                  textColor: hasValidResult
+                      ? AppColors.primaryTeal
+                      : g.textSecondary,
+                  onTap: hasValidResult ? () => _onDone(evaluated) : null,
+                ),
+              ], theme, g, isDark),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildRow(List<_KeySpec> keys, ThemeData theme, bool isDark) {
+  Widget _buildRow(
+    List<_KeySpec> keys,
+    ThemeData theme,
+    GlassTokens g,
+    bool isDark,
+  ) {
     return Row(
       children: [
         for (var i = 0; i < keys.length; i++) ...[
           if (i > 0) const SizedBox(width: 8),
-          Expanded(child: _buildKey(keys[i], theme, isDark)),
+          Expanded(child: _buildKey(keys[i], theme, g, isDark)),
         ],
       ],
     );
   }
 
-  Widget _buildKey(_KeySpec spec, ThemeData theme, bool isDark) {
+  Widget _buildKey(
+    _KeySpec spec,
+    ThemeData theme,
+    GlassTokens g,
+    bool isDark,
+  ) {
     final opBg = isDark
         ? AppColors.primaryTeal.withValues(alpha: 0.65)
         : AppColors.primaryTeal.withValues(alpha: 0.12);
-    final numBg = isDark ? AppColors.surfaceDark : AppColors.surfaceLight;
+    final numBg = g.surfaceSubtle;
 
     final bgColor = spec.color ?? (spec.isOperator ? opBg : numBg);
     final fgColor = spec.textColor ??
         (spec.isOperator
             ? (isDark ? AppColors.accentLime : AppColors.primaryTeal)
-            : theme.textTheme.bodyLarge?.color);
+            : g.textPrimary);
 
     return Material(
       color: bgColor,
@@ -548,6 +569,10 @@ class _CalculatorBottomSheetState extends State<_CalculatorBottomSheet> {
         child: Container(
           height: 52,
           alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: g.glassBorder.withValues(alpha: 0.45)),
+          ),
           child: spec.icon != null && spec.label != null
               ? Row(
                   mainAxisAlignment: MainAxisAlignment.center,

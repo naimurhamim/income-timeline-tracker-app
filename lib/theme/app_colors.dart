@@ -49,6 +49,32 @@ class AppColors {
   ];
 
   // ─── Gradient ───
+  // ─── Signature Obsidian-Mint & Cream-Forest Accents ───
+  static const Color accentMintLight = Color(0xFF8BF29C);
+  static const Color deepForest = Color(0xFF14452F);
+  static const Color obsidianDark = Color(0xFF060C09);
+  static const Color obsidianCardDark = Color(0xFF0B1A12);
+
+  static const LinearGradient darkMintHeroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFFB5F9AD),
+      Color(0xFF82EE96),
+      Color(0xFFA2F69F),
+    ],
+  );
+
+  static const LinearGradient lightForestHeroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFF14452F),
+      Color(0xFF1D583D),
+      Color(0xFF286C4C),
+    ],
+  );
+
   static const LinearGradient headerGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -66,4 +92,17 @@ class AppColors {
     end: Alignment.bottomRight,
     colors: [accentLime, Color(0xFF7BC74D)],
   );
+
+  /// Lifts dark colors so icons/badges stay legible on dark glass surfaces.
+  static Color adaptiveColor(Color color, bool isDark) {
+    if (!isDark) return color;
+    final hsl = HSLColor.fromColor(color);
+    if (hsl.lightness < 0.62) {
+      return hsl
+          .withLightness(0.68)
+          .withSaturation((hsl.saturation + 0.12).clamp(0.35, 0.90))
+          .toColor();
+    }
+    return color;
+  }
 }

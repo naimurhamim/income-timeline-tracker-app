@@ -11,9 +11,14 @@ class CategoryProvider extends ChangeNotifier {
 
   List<CategoryModel> _categories = [];
   bool _isLoading = false;
+  VoidCallback? _onDataChanged;
 
   List<CategoryModel> get categories => _categories;
   bool get isLoading => _isLoading;
+
+  void setOnDataChanged(VoidCallback? callback) {
+    _onDataChanged = callback;
+  }
 
   void _onRepositoryChanged() => loadCategories(preferServer: true);
 
@@ -44,16 +49,19 @@ class CategoryProvider extends ChangeNotifier {
   Future<void> addCategory(CategoryModel category) async {
     await _repo.saveCategory(category);
     await loadCategories();
+    _onDataChanged?.call();
   }
 
   Future<void> updateCategory(CategoryModel category) async {
     await _repo.saveCategory(category);
     await loadCategories();
+    _onDataChanged?.call();
   }
 
   Future<void> deleteCategory(String id) async {
     await _repo.deleteCategory(id);
     await loadCategories();
+    _onDataChanged?.call();
   }
 
   String getCategoryName(String? categoryId) {

@@ -25,6 +25,11 @@ class EntryProvider extends ChangeNotifier {
 
   /// Called after the entry list changes (used to refresh in-app alerts).
   void Function(List<EntryModel> upcoming)? onEntriesChanged;
+  VoidCallback? _onDataChanged;
+
+  void setOnDataChanged(VoidCallback? callback) {
+    _onDataChanged = callback;
+  }
 
   // Getters
   List<EntryModel> get entries => _entries;
@@ -293,6 +298,7 @@ class EntryProvider extends ChangeNotifier {
     _applyFilters();
     notifyListeners();
     _afterChange();
+    _onDataChanged?.call();
   }
 
   void _afterChange() {

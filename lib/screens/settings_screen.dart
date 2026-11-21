@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/category.dart';
 import '../providers/account_provider.dart';
 import '../providers/category_provider.dart';
-import '../providers/theme_provider.dart';
 import '../providers/currency_provider.dart';
+import '../providers/entry_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import '../services/update_service.dart';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
 import '../widgets/account_card.dart';
+import '../widgets/glass_surface.dart';
 import 'pin_setup_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -21,558 +24,802 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _appVersion = '1.0.0';
+  String? _expandedSection;
+  String _appVersion = '3.0.0';
+  bool _notificationsEnabled = true;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final account = context.read<AccountProvider>();
-      if (!account.isSignedIn) account.refreshLocalCount();
-    });
+    _checkNotificationPermission();
   }
 
   Future<void> _loadVersion() async {
+    final version = await UpdateService.getCurrentVersion();
+    if (mounted) setState(() => _appVersion = version);
+  }
+
+  Future<void> _checkNotificationPermission() async {
+    final granted = await NotificationService().isPermissionGranted();
+    if (mounted) setState(() => _notificationsEnabled = granted);
+  }
+
+  void _toggleSection(String key) {
+    setState(() {
+      _expandedSection = (_expandedSection == key) ? null : key;
+    });
+  }
+
+  Future<void> _openExternalUrl(String rawUrl) async {
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null) return;
     try {
-      final info = await PackageInfo.fromPlatform();
-      if (mounted) setState(() => _appVersion = info.version);
-    } catch (_) {}
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open link')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open link')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final g = context.glass;
     final isDark = theme.brightness == Brightness.dark;
+    final wide = MediaQuery.sizeOf(context).width >= AppLayout.railBreakpoint;
+
     final themeProvider = context.watch<ThemeProvider>();
     final categoryProvider = context.watch<CategoryProvider>();
+    final entryProvider = context.read<EntryProvider>();
     final authService = context.watch<AuthService>();
     final currencyProvider = context.watch<CurrencyProvider>();
-    final isSignedIn = context.select<AccountProvider, bool>((a) => a.isSignedIn);
-    final iconColor = isDark ? AppColors.accentLime : AppColors.primaryTeal;
+    final account = context.watch<AccountProvider>();
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 120,
-            pinned: true,
-            backgroundColor:
-                isDark ? AppColors.primaryTealDark : AppColors.primaryTeal,
-            flexibleSpace: FlexibleSpaceBar(
-              title: const Text(
-                'Settings',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints:
+                const BoxConstraints(maxWidth: AppLayout.maxContentWidth),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                wide ? AppSpacing.xl : AppLayout.navClearance + 16,
               ),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: isDark
-                      ? AppColors.headerGradientDark
-                      : AppColors.headerGradient,
-                ),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ─── Account ───
-                  Text('Account', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  const AccountCard(),
-
-                  const SizedBox(height: 24),
-
-                  // ─── Appearance ───
-                  Text('Appearance', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  _buildSettingCard(
-                    theme: theme,
-                    child: SwitchListTile(
-                      title: const Text('Dark Mode'),
-                      subtitle: const Text('Switch between light and dark theme'),
-                      value: themeProvider.isDark,
-                      onChanged: (_) => themeProvider.toggleTheme(),
-                      activeTrackColor: AppColors.accentLime,
-                      secondary: Icon(
-                        themeProvider.isDark
-                            ? Icons.dark_mode_rounded
-                            : Icons.light_mode_rounded,
-                        color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ─── Currency ───
-                  Text('Currency', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  _buildSettingCard(
-                    theme: theme,
-                    child: ListTile(
-                      leading: Icon(
-                        Icons.currency_exchange_rounded,
-                        color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
-                      ),
-                      title: const Text('Currency'),
-                      subtitle: Text(currencyProvider.name),
-                      trailing: Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 14,
-                        color: theme.textTheme.bodySmall?.color,
-                      ),
-                      onTap: () => _showCurrencyPicker(context, currencyProvider),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ─── Data ───
-                  Text('Data', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  _buildSettingCard(
-                    theme: theme,
-                    child: DataBackupTiles(iconColor: iconColor),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ─── Security ───
-                  Text('Security', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  _buildSettingCard(
-                    theme: theme,
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: Icon(
-                            authService.authEnabled
-                                ? Icons.lock_rounded
-                                : Icons.lock_open_rounded,
-                            color: authService.authEnabled
-                                ? (isDark ? AppColors.accentLime : AppColors.primaryTeal)
-                                : theme.iconTheme.color,
+                  // ─── Header ───
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Settings',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
-                          title: Text(
-                            authService.authEnabled
-                                ? 'App Lock Enabled'
-                                : 'App Lock',
-                          ),
-                          subtitle: Text(
-                            authService.authEnabled
-                                ? 'Locked with PIN'
-                                : 'Set up a PIN',
-                          ),
-                          trailing: Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            size: 14,
-                            color: theme.textTheme.bodySmall?.color,
-                          ),
-                          onTap: () async {
-                            if (authService.authEnabled) {
-                              _showAuthOptions(context, authService);
-                            } else {
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const PinSetupScreen(),
-                                ),
-                              );
-                            }
-                          },
                         ),
-                        if (authService.authEnabled &&
-                            authService.hasBiometrics) ...[
-                          const Divider(height: 1),
-                          SwitchListTile(
-                            secondary: Icon(
-                              Icons.fingerprint_rounded,
-                              color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
-                            ),
-                            title: const Text('Fingerprint'),
-                            subtitle:
-                                const Text('Unlock with Fingerprint'),
-                            value: authService.biometricEnabled,
-                            onChanged: (val) =>
-                                authService.setBiometricEnabled(val),
-                            activeTrackColor: AppColors.accentLime,
+                      ),
+                      if (authService.authEnabled)
+                        GlassCircleButton(
+                          icon: Icons.lock_outline_rounded,
+                          tooltip: 'Lock app now',
+                          onTap: authService.lock,
+                        )
+                      else if (account.isSignedIn)
+                        GlassCircleButton(
+                          icon: Icons.logout_rounded,
+                          tooltip: 'Sign out',
+                          onTap: account.signOut,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+
+                  // ─── Profile Hero Card ───
+                  GlassContainer(
+                    borderRadius: AppRadius.lg,
+                    blur: 0,
+                    elevated: true,
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _ProfileAvatar(
+                          photoUrl: account.photoUrl,
+                          name: account.isSignedIn
+                              ? account.displayName
+                              : 'Money Tracker',
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                account.isSignedIn
+                                    ? account.displayName
+                                    : 'Money Tracker',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                account.isSignedIn
+                                    ? (account.email.isNotEmpty
+                                        ? account.email
+                                        : 'Private Google Drive')
+                                    : 'Local device profile',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              Wrap(
+                                spacing: AppSpacing.sm,
+                                runSpacing: AppSpacing.xs,
+                                children: [
+                                  if (!account.isSignedIn)
+                                    GlassPillButton(
+                                      icon: Icons.login_rounded,
+                                      label: account.isAvailable
+                                          ? 'Google Sign-In'
+                                          : 'Data Backup',
+                                      onTap: () {
+                                        if (account.isAvailable) {
+                                          account.signIn();
+                                        } else {
+                                          _toggleSection('cloud');
+                                        }
+                                      },
+                                    )
+                                  else ...[
+                                    GlassPillButton(
+                                      icon: Icons.cloud_upload_outlined,
+                                      label: account.isSyncing
+                                          ? 'Syncing...'
+                                          : 'Backup',
+                                      onTap: account.backupNow,
+                                    ),
+                                    GlassPillButton(
+                                      icon: Icons.cloud_download_outlined,
+                                      label: 'Restore',
+                                      onTap: () => _toggleSection('cloud'),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.md),
 
-                  const SizedBox(height: 24),
-
-                  // ─── Categories ───
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Categories',
-                          style: theme.textTheme.headlineMedium),
-                      IconButton(
-                        onPressed: () =>
-                            _showAddCategoryDialog(context, categoryProvider),
-                        icon: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: AppColors.accentLime,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.add_rounded,
-                            color: AppColors.primaryTeal,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  ...categoryProvider.categories.map((cat) {
-                    final color = Color(
-                      int.parse(cat.color.replaceFirst('#', '0xFF')),
-                    );
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: ListTile(
-                        leading: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            _getCategoryIcon(cat.icon),
-                            color: color,
-                            size: 20,
-                          ),
-                        ),
-                        title: Text(cat.name),
-                        trailing: !cat.isDefault
-                            ? IconButton(
-                                icon: const Icon(Icons.delete_outline_rounded,
-                                    color: AppColors.error, size: 20),
-                                onPressed: () => _confirmDeleteCategory(
-                                    context, categoryProvider, cat.id),
-                              )
-                            : Icon(Icons.lock_rounded,
-                                size: 16, color: theme.textTheme.bodySmall?.color),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    );
-                  }),
-
-                  const SizedBox(height: 24),
-
-                  // ─── About ───
-                  Text('About', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  _buildSettingCard(
-                    theme: theme,
+                  // ─── Settings Accordion Card ───
+                  GlassContainer(
+                    borderRadius: AppRadius.lg,
+                    blur: 0,
+                    elevated: true,
                     child: Column(
                       children: [
-                        ListTile(
-                          leading: Icon(Icons.info_outline_rounded,
-                              color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
-                          title: const Text('Money Tracker'),
-                          subtitle: Text('Version $_appVersion'),
+                        // 1. Google Drive & Data Backup
+                        _AccordionSection(
+                          icon: Icons.cloud_outlined,
+                          title: 'Google Drive & Data Backup',
+                          subtitle: account.isSignedIn
+                              ? 'Private Drive (${account.email.isNotEmpty ? account.email : 'Connected'})'
+                              : 'Private Google Drive sync & JSON Export/Import',
+                          expanded: _expandedSection == 'cloud',
+                          onToggle: () => _toggleSection('cloud'),
+                          child: const Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              AppSpacing.md,
+                              0,
+                              AppSpacing.md,
+                              AppSpacing.md,
+                            ),
+                            child: AccountCard(),
+                          ),
                         ),
                         const Divider(height: 1),
-                        ListTile(
-                          leading: Icon(Icons.system_update_rounded,
-                              color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
-                          title: const Text('Check for Updates'),
-                          subtitle: const Text('Download the latest version'),
-                          trailing: Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            size: 14,
-                            color: theme.textTheme.bodySmall?.color,
+
+                        // 2. Appearance
+                        _AccordionSection(
+                          icon: Icons.palette_outlined,
+                          title: 'Appearance',
+                          subtitle: _themeLabel(themeProvider.themeMode),
+                          expanded: _expandedSection == 'appearance',
+                          onToggle: () => _toggleSection('appearance'),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.md,
+                              0,
+                              AppSpacing.md,
+                              AppSpacing.md,
+                            ),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: SegmentedButton<ThemeMode>(
+                                segments: const [
+                                  ButtonSegment(
+                                    value: ThemeMode.system,
+                                    icon: Icon(Icons.brightness_auto_outlined),
+                                    label: Text('System'),
+                                  ),
+                                  ButtonSegment(
+                                    value: ThemeMode.light,
+                                    icon: Icon(Icons.light_mode_outlined),
+                                    label: Text('Light'),
+                                  ),
+                                  ButtonSegment(
+                                    value: ThemeMode.dark,
+                                    icon: Icon(Icons.dark_mode_outlined),
+                                    label: Text('Dark'),
+                                  ),
+                                ],
+                                selected: {themeProvider.themeMode},
+                                onSelectionChanged: (selected) {
+                                  themeProvider.setThemeMode(selected.first);
+                                },
+                              ),
+                            ),
                           ),
+                        ),
+                        const Divider(height: 1),
+
+                        // 3. Currency
+                        _SettingsRow(
+                          icon: Icons.currency_exchange_rounded,
+                          title: 'Currency',
+                          subtitle: currencyProvider.name,
+                          onTap: () =>
+                              _showCurrencyPicker(context, currencyProvider),
+                        ),
+                        const Divider(height: 1),
+
+                        // 4. Notifications & Reminders (with Test Notification button!)
+                        _AccordionSection(
+                          icon: Icons.notifications_none_rounded,
+                          title: 'Notifications & Reminders',
+                          subtitle: _notificationsEnabled
+                              ? 'Enabled · 7-day, 3-day & due-day 9:00 AM alerts'
+                              : 'Permission needed or paused',
+                          expanded: _expandedSection == 'notifications',
+                          onToggle: () => _toggleSection('notifications'),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.md,
+                              0,
+                              AppSpacing.md,
+                              AppSpacing.md,
+                            ),
+                            child: GlassContainer(
+                              borderRadius: AppRadius.md,
+                              blur: 0,
+                              fillColor: g.surfaceSubtle,
+                              padding: const EdgeInsets.all(AppSpacing.md),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        _notificationsEnabled
+                                            ? Icons.notifications_active_rounded
+                                            : Icons.notifications_off_rounded,
+                                        color: _notificationsEnabled
+                                            ? g.success
+                                            : g.warning,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Expanded(
+                                        child: Text(
+                                          _notificationsEnabled
+                                              ? 'System notification permission is granted.'
+                                              : 'Tap Test Notification to request notification permission.',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(color: g.textPrimary),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  OutlinedButton.icon(
+                                    key: const Key('test_notification_button'),
+                                    onPressed: () async {
+                                      final messenger =
+                                          ScaffoldMessenger.of(context);
+                                      final msg = await NotificationService()
+                                          .showTestNotification();
+                                      await _checkNotificationPermission();
+                                      messenger.showSnackBar(
+                                        SnackBar(content: Text(msg)),
+                                      );
+                                    },
+                                    icon: const Icon(
+                                        Icons.notifications_outlined,
+                                        size: 18),
+                                    label:
+                                        const Text('Send Test Notification'),
+                                  ),
+                                  const SizedBox(height: AppSpacing.sm),
+                                  OutlinedButton.icon(
+                                    onPressed: () async {
+                                      final messenger =
+                                          ScaffoldMessenger.of(context);
+                                      await NotificationService()
+                                          .scheduleAllEntryNotifications(
+                                        entryProvider.allUpcoming,
+                                      );
+                                      messenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'All upcoming entry reminders rescheduled.',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.refresh_rounded,
+                                        size: 18),
+                                    label: const Text('Reschedule Reminders'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1),
+
+                        // 5. Privacy & App Lock
+                        _AccordionSection(
+                          icon: authService.authEnabled
+                              ? Icons.lock_rounded
+                              : Icons.lock_outline_rounded,
+                          title: 'Privacy & App Lock',
+                          subtitle: authService.authEnabled
+                              ? (authService.biometricEnabled
+                                  ? 'PIN + Fingerprint Lock enabled'
+                                  : 'PIN Lock enabled')
+                              : 'Protect financial records with PIN + Fingerprint',
+                          expanded: _expandedSection == 'privacy',
+                          onToggle: () => _toggleSection('privacy'),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.md,
+                              0,
+                              AppSpacing.md,
+                              AppSpacing.md,
+                            ),
+                            child: GlassContainer(
+                              borderRadius: AppRadius.md,
+                              blur: 0,
+                              fillColor: g.surfaceSubtle,
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    leading: Icon(
+                                      authService.authEnabled
+                                          ? Icons.lock_rounded
+                                          : Icons.lock_open_rounded,
+                                      color: authService.authEnabled
+                                          ? g.primary
+                                          : g.textSecondary,
+                                    ),
+                                    title: Text(authService.authEnabled
+                                        ? 'App Lock Enabled'
+                                        : 'Set Up App Lock'),
+                                    subtitle: Text(authService.authEnabled
+                                        ? 'Change or disable PIN'
+                                        : 'Require PIN on launch'),
+                                    trailing: const Icon(
+                                        Icons.chevron_right_rounded),
+                                    onTap: () async {
+                                      if (authService.authEnabled) {
+                                        _showAuthOptions(context, authService);
+                                      } else {
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const PinSetupScreen(),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                  if (authService.authEnabled &&
+                                      authService.hasBiometrics) ...[
+                                    const Divider(height: 1),
+                                    SwitchListTile(
+                                      secondary: Icon(
+                                        Icons.fingerprint_rounded,
+                                        color: g.primary,
+                                      ),
+                                      title: const Text('Fingerprint'),
+                                      subtitle: const Text(
+                                          'Unlock with Fingerprint'),
+                                      value: authService.biometricEnabled,
+                                      onChanged: authService.setBiometricEnabled,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1),
+
+                        // 6. Categories
+                        _AccordionSection(
+                          icon: Icons.category_outlined,
+                          title: 'Categories',
+                          subtitle:
+                              '${categoryProvider.categories.length} entry categories configured',
+                          expanded: _expandedSection == 'categories',
+                          onToggle: () => _toggleSection('categories'),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.md,
+                              0,
+                              AppSpacing.md,
+                              AppSpacing.md,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                ...categoryProvider.categories.map((cat) {
+                                  final rawColor = Color(
+                                    int.parse(
+                                        cat.color.replaceFirst('#', '0xFF')),
+                                  );
+                                  final catColor = AppColors.adaptiveColor(
+                                      rawColor, isDark);
+
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: GlassContainer(
+                                      borderRadius: AppRadius.md,
+                                      blur: 0,
+                                      fillColor: g.surfaceSubtle,
+                                      child: ListTile(
+                                        leading: Container(
+                                          width: 38,
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            color: catColor.withValues(
+                                                alpha: isDark ? 0.22 : 0.14),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          child: Icon(
+                                            _getCategoryIcon(cat.icon),
+                                            color: catColor,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        title: Text(cat.name),
+                                        trailing: !cat.isDefault
+                                            ? IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  color: AppColors.error,
+                                                  size: 20,
+                                                ),
+                                                onPressed: () =>
+                                                    _confirmDeleteCategory(
+                                                  context,
+                                                  categoryProvider,
+                                                  cat.id,
+                                                ),
+                                              )
+                                            : Icon(
+                                                Icons.lock_rounded,
+                                                size: 16,
+                                                color: g.textSecondary,
+                                              ),
+                                      ),
+                                    ),
+                                  );
+                                }),
+                                const SizedBox(height: 4),
+                                OutlinedButton.icon(
+                                  onPressed: () => _showAddCategoryDialog(
+                                      context, categoryProvider),
+                                  icon: const Icon(Icons.add_rounded, size: 18),
+                                  label: const Text('Add Custom Category'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+
+                  // ─── About ───
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: AppSpacing.sm),
+                    child: Text(
+                      'About',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: g.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  GlassContainer(
+                    borderRadius: AppRadius.lg,
+                    blur: 0,
+                    elevated: true,
+                    child: Column(
+                      children: [
+                        _AboutInfoRow(
+                          icon: Icons.info_outline_rounded,
+                          title: 'Money Tracker',
+                          subtitle: 'Version $_appVersion',
+                        ),
+                        const Divider(height: 1),
+                        _SettingsRow(
+                          icon: Icons.system_update_rounded,
+                          title: 'Check for Updates',
+                          subtitle: 'Verify latest release on GitHub',
                           onTap: () => UpdateService.checkForUpdate(context),
                         ),
                         const Divider(height: 1),
-                        ListTile(
-                          leading: Icon(Icons.storage_rounded,
-                              color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
-                          title: const Text('Data Storage'),
-                          subtitle: Text(
-                            isSignedIn
-                                ? 'Your data is saved in your Google account (Firebase) and cached on this device for offline use.'
-                                : 'All data is stored locally on your device. Sign in to back it up to the cloud.',
-                          ),
+                        const _AboutInfoRow(
+                          icon: Icons.storage_outlined,
+                          title: 'Data Storage',
+                          subtitle:
+                              'On-device SQLite + private Google Drive (appDataFolder)',
                         ),
                         const Divider(height: 1),
-                        ListTile(
-                          leading: Icon(Icons.security_rounded,
-                              color: isDark ? AppColors.accentLime : AppColors.primaryTeal),
-                          title: const Text('Privacy'),
-                          subtitle: Text(
-                            isSignedIn
-                                ? 'Only you can access your data. It is never shared.'
-                                : 'Your financial data never leaves your device.',
+                        const _AboutInfoRow(
+                          icon: Icons.verified_user_outlined,
+                          title: 'Privacy',
+                          subtitle:
+                              'Backups stay in your own Google Drive; zero third-party server access',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+
+                  // ─── Developer ───
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: AppSpacing.sm),
+                    child: Text(
+                      'Developer',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: g.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  GlassContainer(
+                    borderRadius: AppRadius.lg,
+                    blur: 0,
+                    elevated: true,
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: g.glassBorder),
+                              ),
+                              child: ClipOval(
+                                child: Image.asset(
+                                  'assets/images/Naimur_Hamim.jpg',
+                                  width: 56,
+                                  height: 56,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) =>
+                                      const AppLogoMark(size: 56),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'MD Naimur Rashid',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Creator',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: g.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        const Divider(height: 1),
+                        _DeveloperLinkRow(
+                          icon: Icons.language_rounded,
+                          label: 'Website',
+                          value: 'naimurrashid.dev',
+                          onTap: () =>
+                              _openExternalUrl('https://naimurrashid.dev/'),
+                        ),
+                        const Divider(height: 1),
+                        _DeveloperLinkRow(
+                          icon: Icons.code_rounded,
+                          label: 'GitHub',
+                          value: 'github.com/naimurhamim',
+                          onTap: () =>
+                              _openExternalUrl('https://github.com/naimurhamim'),
+                        ),
+                        const Divider(height: 1),
+                        _DeveloperLinkRow(
+                          icon: Icons.work_outline_rounded,
+                          label: 'LinkedIn',
+                          value: 'md-naimur-rashid',
+                          onTap: () => _openExternalUrl(
+                            'https://www.linkedin.com/in/md-naimur-rashid/',
                           ),
                         ),
                       ],
                     ),
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // ─── Developer ───
-                  Text('Developer', style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  _buildSettingCard(
-                    theme: theme,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 30,
-                                backgroundImage: const AssetImage('assets/images/Naimur_Hamim.jpg'),
-                                backgroundColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'MD Naimur Rashid',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Creator',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: isDark ? Colors.white60 : Colors.black54,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _buildDevLink(
-                                icon: Icons.language_rounded,
-                                label: 'Website',
-                                url: 'https://naimurrashid.dev/',
-                                isDark: isDark,
-                              ),
-                              _buildDevLink(
-                                icon: Icons.code_rounded,
-                                label: 'GitHub',
-                                url: 'https://github.com/naimurhamim',
-                                isDark: isDark,
-                              ),
-                              _buildDevLink(
-                                icon: Icons.work_outline_rounded,
-                                label: 'LinkedIn',
-                                url: 'https://www.linkedin.com/in/md-naimur-rashid/',
-                                isDark: isDark,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
+  static String _themeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return 'Light Glass';
+      case ThemeMode.dark:
+        return 'Dark Glass';
+      case ThemeMode.system:
+        return 'Follow System';
+    }
+  }
+
   void _showCurrencyPicker(BuildContext context, CurrencyProvider provider) {
-    showModalBottomSheet(
+    final g = context.glass;
+    showModalBottomSheet<void>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Select Currency',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            ...CurrencyProvider.currencies.map((c) {
-              final isSelected = provider.code == c['code'];
-              return ListTile(
-                leading: Text(
-                  c['symbol']!,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w700),
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: g.surface,
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+          border: Border.all(color: g.glassBorder),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                title: Text(c['name']!),
-                trailing: isSelected
-                    ? const Icon(Icons.check_circle_rounded,
-                        color: AppColors.success)
-                    : null,
-                onTap: () {
-                  provider.setCurrency(c['code']!);
-                  Navigator.pop(ctx);
-                },
-              );
-            }),
-            const SizedBox(height: 8),
-          ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Select Currency',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              ...CurrencyProvider.currencies.map((c) {
+                final isSelected = provider.code == c['code'];
+                return ListTile(
+                  leading: Text(
+                    c['symbol']!,
+                    style: const TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                  title: Text(c['name']!),
+                  trailing: isSelected
+                      ? Icon(Icons.check_circle_rounded, color: g.success)
+                      : null,
+                  onTap: () {
+                    provider.setCurrency(c['code']!);
+                    Navigator.pop(ctx);
+                  },
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
   }
 
   void _showAuthOptions(BuildContext context, AuthService authService) {
-    showModalBottomSheet(
+    final g = context.glass;
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.edit_rounded),
-              title: const Text('Change PIN'),
-              onTap: () async {
-                Navigator.pop(ctx);
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PinSetupScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.lock_open_rounded, color: Color(0xFFFF6B6B)),
-              title: const Text('Disable App Lock',
-                  style: TextStyle(color: Color(0xFFFF6B6B))),
-              onTap: () async {
-                Navigator.pop(ctx);
-                await authService.disableAuth();
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: g.surface,
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+          border: Border.all(color: g.glassBorder),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSettingCard({
-    required ThemeData theme,
-    required Widget child,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: child,
-      ),
-    );
-  }
-
-  Widget _buildDevLink({
-    required IconData icon,
-    required String label,
-    required String url,
-    required bool isDark,
-  }) {
-    return InkWell(
-      onTap: () async {
-        final uri = Uri.parse(url);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 24,
-              color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 14),
+              ListTile(
+                leading: const Icon(Icons.edit_rounded),
+                title: const Text('Change PIN'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PinSetupScreen()),
+                  );
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.lock_open_rounded, color: AppColors.error),
+                title: const Text('Disable App Lock',
+                    style: TextStyle(color: AppColors.error)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await authService.disableAuth();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -597,9 +844,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showAddCategoryDialog(
       BuildContext context, CategoryProvider provider) {
+    final g = context.glass;
     final nameController = TextEditingController();
-    String selectedColor = '#1B3A4B';
-    String selectedIcon = 'category';
+    var selectedColor = '#1B3A4B';
+    var selectedIcon = 'category';
 
     final icons = {
       'category': Icons.category_rounded,
@@ -614,12 +862,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'school': Icons.school_rounded,
     };
 
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: g.surface,
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            side: BorderSide(color: g.glassBorder),
+          ),
           title: const Text('Add Category'),
           content: SingleChildScrollView(
             child: Column(
@@ -647,16 +898,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primaryTeal
-                              : AppColors.backgroundLight,
+                          color: isSelected ? g.primary : g.surfaceSubtle,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Icon(
                           e.value,
-                          color: isSelected
-                              ? Colors.white
-                              : AppColors.textSecondary,
+                          color: isSelected ? g.onPrimary : g.textSecondary,
                           size: 20,
                         ),
                       ),
@@ -710,7 +957,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: () {
                 if (nameController.text.trim().isEmpty) return;
                 provider.addCategory(CategoryModel(
@@ -730,11 +977,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _confirmDeleteCategory(
       BuildContext context, CategoryProvider provider, String id) {
-    showDialog(
+    final g = context.glass;
+    showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: g.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: g.glassBorder),
+        ),
         title: const Text('Delete Category?'),
         content: const Text(
           'Entries using this category will keep their current type label.',
@@ -749,12 +1000,241 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Navigator.pop(ctx);
               provider.deleteCategory(id);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Delete'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.photoUrl, required this.name});
+
+  final String? photoUrl;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPhoto = photoUrl != null && photoUrl!.isNotEmpty;
+    if (hasPhoto) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Image.network(
+          photoUrl!,
+          width: 68,
+          height: 68,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const AppLogoMark(size: 68),
+        ),
+      );
+    }
+    return const AppLogoMark(size: 68);
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.quarterTurns = 0,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final double quarterTurns;
+
+  @override
+  Widget build(BuildContext context) {
+    final g = context.glass;
+    final textTheme = Theme.of(context).textTheme;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.md,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: g.surfaceSubtle,
+              ),
+              child: Icon(icon, size: 19, color: g.textPrimary),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            AnimatedRotation(
+              turns: quarterTurns,
+              duration: const Duration(milliseconds: 180),
+              child: Icon(Icons.chevron_right_rounded, color: g.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AccordionSection extends StatelessWidget {
+  const _AccordionSection({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.expanded,
+    required this.onToggle,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _SettingsRow(
+          icon: icon,
+          title: title,
+          subtitle: subtitle,
+          onTap: onToggle,
+          quarterTurns: expanded ? 0.25 : 0,
+        ),
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: child,
+          crossFadeState:
+              expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 220),
+          sizeCurve: Curves.easeOutCubic,
+        ),
+      ],
+    );
+  }
+}
+
+class _AboutInfoRow extends StatelessWidget {
+  const _AboutInfoRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final g = context.glass;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.md,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: AppIconSize.md, color: g.textPrimary),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: g.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeveloperLinkRow extends StatelessWidget {
+  const _DeveloperLinkRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final g = context.glass;
+    final textTheme = Theme.of(context).textTheme;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: Row(
+          children: [
+            Icon(icon, size: 19, color: g.primary),
+            const SizedBox(width: AppSpacing.md),
+            Text(
+              label,
+              style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const Spacer(),
+            Text(
+              value,
+              style: textTheme.bodySmall?.copyWith(color: g.textSecondary),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.open_in_new_rounded, size: 15, color: g.textSecondary),
+          ],
+        ),
       ),
     );
   }

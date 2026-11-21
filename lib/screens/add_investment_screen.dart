@@ -5,7 +5,9 @@ import '../models/investment.dart';
 import '../providers/currency_provider.dart';
 import '../providers/investment_provider.dart';
 import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
 import '../widgets/calculator_keyboard.dart';
+import '../widgets/glass_surface.dart';
 
 /// Formats an investment amount cleanly (omits `.00` for whole numbers).
 String formatInvestmentAmount(CurrencyProvider currency, double amount) {
@@ -33,9 +35,13 @@ Future<bool> showAmountVerificationDialog(
     context: context,
     builder: (ctx) {
       final theme = Theme.of(ctx);
-      final isDark = theme.brightness == Brightness.dark;
+      final g = ctx.glass;
       return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        backgroundColor: g.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: g.glassBorder),
+        ),
         titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
         contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
         title: Row(
@@ -88,7 +94,7 @@ Future<bool> showAmountVerificationDialog(
                   ? '$diffFormatted has been added to $title. New amount will be $newFormatted.'
                   : '$diffFormatted has been removed from $title. New amount will be $newFormatted.',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.textTheme.bodyLarge?.color,
+                color: g.textPrimary,
                 height: 1.4,
               ),
             ),
@@ -96,15 +102,16 @@ Future<bool> showAmountVerificationDialog(
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                color: g.surfaceSubtle,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Column(
                 children: [
-                  _summaryRow(theme, 'Previous', oldFormatted),
+                  _summaryRow(theme, g, 'Previous', oldFormatted),
                   const SizedBox(height: 8),
                   _summaryRow(
                     theme,
+                    g,
                     'Change',
                     isAdded ? '+$diffFormatted' : '-$diffFormatted',
                     valueColor: accentColor,
@@ -115,11 +122,11 @@ Future<bool> showAmountVerificationDialog(
                   ),
                   _summaryRow(
                     theme,
+                    g,
                     'New Amount',
                     newFormatted,
                     isBold: true,
-                    valueColor:
-                        isDark ? AppColors.accentLime : AppColors.primaryTeal,
+                    valueColor: g.primary,
                   ),
                 ],
               ),
@@ -131,11 +138,8 @@ Future<bool> showAmountVerificationDialog(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-            ),
             child: const Text('Confirm'),
           ),
         ],
@@ -147,6 +151,7 @@ Future<bool> showAmountVerificationDialog(
 
 Widget _summaryRow(
   ThemeData theme,
+  GlassTokens g,
   String label,
   String value, {
   Color? valueColor,
@@ -161,7 +166,7 @@ Widget _summaryRow(
         style: TextStyle(
           fontSize: isBold ? 15 : 13.5,
           fontWeight: isBold ? FontWeight.w800 : FontWeight.w600,
-          color: valueColor ?? theme.textTheme.bodyLarge?.color,
+          color: valueColor ?? g.textPrimary,
         ),
       ),
     ],
@@ -298,13 +303,17 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
     var chosenIcon = 'wallet';
     var chosenColor = '#1B3A4B';
     String? nameError;
+    final g = context.glass;
 
     final created = await showDialog<InvestmentTypePreset>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: g.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            side: BorderSide(color: g.glassBorder),
+          ),
           title: const Text('Custom Investment Type'),
           content: SingleChildScrollView(
             child: Column(
@@ -333,16 +342,12 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primaryTeal
-                              : AppColors.backgroundLight,
+                          color: isSelected ? g.primary : g.surfaceSubtle,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Icon(
                           e.value,
-                          color: isSelected
-                              ? Colors.white
-                              : AppColors.textSecondary,
+                          color: isSelected ? g.onPrimary : g.textSecondary,
                           size: 20,
                         ),
                       ),
@@ -395,7 +400,7 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: () {
                 final name = nameController.text.trim();
                 if (name.isEmpty) {
@@ -431,6 +436,7 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
   Future<void> _confirmDelete() async {
     final existing = widget.editInvestment;
     if (existing == null) return;
+    final g = context.glass;
     final currency = context.read<CurrencyProvider>();
     final provider = context.read<InvestmentProvider>();
     final messenger = ScaffoldMessenger.of(context);
@@ -439,7 +445,11 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: g.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: g.glassBorder),
+        ),
         title: const Text('Delete Investment?'),
         content: Text(
           'Remove "${existing.title}" (${formatInvestmentAmount(currency, existing.amount)}) from your principal investments?',
@@ -561,155 +571,156 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final g = context.glass;
     final isDark = theme.brightness == Brightness.dark;
     final provider = context.watch<InvestmentProvider>();
     final currency = context.watch<CurrencyProvider>();
     final types = _collectTypes(provider);
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 120,
-            pinned: true,
-            backgroundColor:
-                isDark ? AppColors.primaryTealDark : AppColors.primaryTeal,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              if (isEditing)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded,
-                      color: Colors.white),
-                  tooltip: 'Delete Investment',
-                  onPressed: _confirmDelete,
-                ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                isEditing ? 'Edit Investment' : 'Add Investment',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: isDark
-                      ? AppColors.headerGradientDark
-                      : AppColors.headerGradient,
-                ),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Investment Type
-                    _buildLabel(theme, 'Investment Type', Icons.category_rounded),
-                    const SizedBox(height: 10),
-                    _buildTypeSelector(theme, types),
-
-                    const SizedBox(height: 22),
-
-                    // Title
-                    _buildLabel(theme, 'Title', Icons.title_rounded),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _titleController,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText: 'e.g. Sonali Bank FD, 2 Vori Gold',
-                      ),
-                      validator: (v) => v == null || v.trim().isEmpty
-                          ? 'Title is required'
-                          : null,
+      backgroundColor: Colors.transparent,
+      body: GlassBackdrop(
+        child: SafeArea(
+          bottom: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: AppLayout.maxContentWidth),
+              child: Column(
+                children: [
+                  // ─── Top Glass Bar ───
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.sm,
+                      AppSpacing.lg,
+                      AppSpacing.sm,
                     ),
-
-                    const SizedBox(height: 22),
-
-                    // Principal Amount (Calculator trigger)
-                    _buildLabel(
-                      theme,
-                      'Principal Amount (${currency.symbol})',
-                      Icons.calculate_rounded,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildAmountField(theme, isDark, currency),
-
-                    const SizedBox(height: 22),
-
-                    // Invested Date
-                    _buildLabel(
-                        theme, 'Date', Icons.calendar_today_rounded),
-                    const SizedBox(height: 8),
-                    _buildDatePicker(theme, isDark),
-
-                    const SizedBox(height: 22),
-
-                    // Notes
-                    _buildLabel(theme, 'Notes (Optional)', Icons.notes_rounded),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _notesController,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        hintText: 'e.g. Bank name, account no., gold weight...',
-                      ),
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Save Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: _save,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              isEditing
-                                  ? Icons.save_rounded
-                                  : Icons.add_rounded,
+                    child: Row(
+                      children: [
+                        GlassCircleButton(
+                          icon: Icons.arrow_back_rounded,
+                          tooltip: 'Back',
+                          size: 42,
+                          onTap: () => Navigator.pop(context),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Text(
+                            isEditing ? 'Edit Investment' : 'Add Investment',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
                             ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isEditing
-                                  ? 'Update Investment'
-                                  : 'Add Investment',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (isEditing)
+                          GlassCircleButton(
+                            icon: Icons.delete_outline_rounded,
+                            iconColor: g.danger,
+                            tooltip: 'Delete Investment',
+                            size: 42,
+                            onTap: _confirmDelete,
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // ─── Form Body ───
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.sm,
+                        AppSpacing.lg,
+                        AppSpacing.xxl,
+                      ),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildAmountHeroCard(
+                              theme,
+                              g,
+                              isDark,
+                              currency,
+                            ),
+                            const SizedBox(height: 22),
+                            _buildLabel(theme, g, 'Investment Type',
+                                Icons.category_rounded),
+                            const SizedBox(height: 10),
+                            _buildTypeSelector(theme, g, isDark, types),
+                            const SizedBox(height: 20),
+                            _buildLabel(theme, g, 'Title', Icons.title_rounded),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              controller: _titleController,
+                              textCapitalization: TextCapitalization.sentences,
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. Sonali Bank FD, 2 Vori Gold',
+                              ),
+                              validator: (v) => v == null || v.trim().isEmpty
+                                  ? 'Title is required'
+                                  : null,
+                            ),
+                            const SizedBox(height: 20),
+                            _buildLabel(theme, g, 'Date',
+                                Icons.calendar_today_rounded),
+                            const SizedBox(height: 8),
+                            _buildDatePicker(theme, g),
+                            const SizedBox(height: 20),
+                            _buildLabel(theme, g, 'Notes (Optional)',
+                                Icons.notes_rounded),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              controller: _notesController,
+                              maxLines: 3,
+                              decoration: const InputDecoration(
+                                hintText:
+                                    'e.g. Bank name, account no., gold weight...',
+                              ),
+                            ),
+                            const SizedBox(height: 28),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: FilledButton.icon(
+                                onPressed: _save,
+                                icon: Icon(
+                                  isEditing
+                                      ? Icons.save_rounded
+                                      : Icons.add_rounded,
+                                ),
+                                label: Text(
+                                  isEditing
+                                      ? 'Update Investment'
+                                      : 'Add Investment',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 40),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildLabel(ThemeData theme, String text, IconData icon) {
+  Widget _buildLabel(
+      ThemeData theme, GlassTokens g, String text, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 16, color: theme.textTheme.bodySmall?.color),
+        Icon(icon, size: 16, color: g.textSecondary),
         const SizedBox(width: 6),
         Text(text, style: theme.textTheme.labelLarge),
       ],
@@ -718,9 +729,10 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
 
   Widget _buildTypeSelector(
     ThemeData theme,
+    GlassTokens g,
+    bool isDark,
     List<InvestmentTypePreset> types,
   ) {
-    final isDark = theme.brightness == Brightness.dark;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -728,9 +740,17 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
         ...types.map((preset) {
           final isSelected = _selectedType.trim().toLowerCase() ==
               preset.name.trim().toLowerCase();
-          final color = preset.displayColor;
+          final color =
+              AppColors.adaptiveColor(preset.displayColor, isDark);
 
-          return GestureDetector(
+          return GlassContainer(
+            borderRadius: AppRadius.pill,
+            blur: 0,
+            elevated: isSelected,
+            fillColor: isSelected
+                ? color.withValues(alpha: isDark ? 0.24 : 0.16)
+                : g.glassFill,
+            borderColor: isSelected ? color : g.glassBorder,
             onTap: () {
               setState(() {
                 _selectedType = preset.name;
@@ -738,96 +758,49 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
                 _selectedColor = preset.color;
               });
             },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? color.withValues(alpha: 0.16)
-                    : theme.inputDecorationTheme.fillColor,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isSelected ? color : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    InvestmentModel.iconDataFor(preset.icon),
-                    size: 18,
-                    color: isSelected
-                        ? color
-                        : theme.textTheme.bodySmall?.color,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    preset.name,
-                    style: TextStyle(
-                      color: isSelected
-                          ? color
-                          : theme.textTheme.bodyMedium?.color,
-                      fontWeight:
-                          isSelected ? FontWeight.w700 : FontWeight.w500,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-        GestureDetector(
-          onTap: () => _showCustomTypeDialog(context),
-          child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? AppColors.accentLime.withValues(alpha: 0.15)
-                  : AppColors.primaryTeal.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isDark
-                    ? AppColors.accentLime.withValues(alpha: 0.45)
-                    : AppColors.primaryTeal.withValues(alpha: 0.35),
-                width: 1.5,
-              ),
-            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  Icons.add_rounded,
-                  size: 18,
-                  color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
+                  InvestmentModel.iconDataFor(preset.icon),
+                  size: 17,
+                  color: isSelected ? color : g.textSecondary,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 Text(
-                  'Custom',
+                  preset.name,
                   style: TextStyle(
-                    color:
-                        isDark ? AppColors.accentLime : AppColors.primaryTeal,
-                    fontWeight: FontWeight.w700,
+                    color: isSelected ? color : g.textPrimary,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                     fontSize: 13,
                   ),
                 ),
               ],
             ),
-          ),
+          );
+        }),
+        GlassPillButton(
+          icon: Icons.add_rounded,
+          label: 'Custom',
+          iconColor: g.primary,
+          selected: true,
+          onTap: () => _showCustomTypeDialog(context),
         ),
       ],
     );
   }
 
-  Widget _buildAmountField(
+  Widget _buildAmountHeroCard(
     ThemeData theme,
+    GlassTokens g,
     bool isDark,
     CurrencyProvider currency,
   ) {
     final editDiff = isEditing ? _amount - widget.editInvestment!.amount : 0.0;
     final hasEditDelta = isEditing && editDiff.abs() >= 0.01;
     final isAdded = editDiff > 0;
+    final hasAmount = _amount > 0 || isEditing;
 
     return FormField<double>(
       initialValue: _amount,
@@ -843,109 +816,147 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              onTap: () => _openCalculator(currency, fieldState),
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-                decoration: BoxDecoration(
-                  color: theme.inputDecorationTheme.fillColor,
-                  borderRadius: BorderRadius.circular(16),
-                  border: fieldState.hasError
-                      ? Border.all(color: AppColors.error, width: 1.5)
-                      : null,
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      currency.symbol,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: isDark
-                            ? AppColors.accentLime
-                            : AppColors.primaryTeal,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _amount > 0 || isEditing
-                            ? formatInvestmentAmount(currency, _amount)
-                            : 'Tap to enter amount',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: _amount > 0 || isEditing
-                              ? FontWeight.w700
-                              : FontWeight.w400,
-                          color: _amount > 0 || isEditing
-                              ? theme.textTheme.bodyLarge?.color
-                              : theme.textTheme.bodySmall?.color,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: (isDark
-                                ? AppColors.accentLime
-                                : AppColors.primaryTeal)
-                            .withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.calculate_rounded,
-                            size: 16,
-                            color: isDark
-                                ? AppColors.accentLime
-                                : AppColors.primaryTeal,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Calculate',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? AppColors.accentLime
-                                  : AppColors.primaryTeal,
-                            ),
-                          ),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: isDark
+                    ? const RadialGradient(
+                        center: Alignment(0, -0.9),
+                        radius: 1.25,
+                        colors: [
+                          Color(0xFF173D28),
+                          Color(0xFF09140E),
+                        ],
+                      )
+                    : const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xFFFFFFFF),
+                          Color(0xFFEAF2EC),
                         ],
                       ),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
+                border: Border.all(
+                  color: fieldState.hasError
+                      ? g.danger
+                      : isDark
+                          ? AppColors.accentMintLight.withValues(alpha: 0.34)
+                          : g.primary.withValues(alpha: 0.24),
+                  width: 1.3,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? AppColors.accentMintLight.withValues(alpha: 0.14)
+                        : g.glassShadow,
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.xl),
+                  onTap: () => _openCalculator(currency, fieldState),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xl,
+                      vertical: 22,
                     ),
-                  ],
+                    child: Column(
+                      children: [
+                        Text(
+                          'PRINCIPAL AMOUNT',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.w700,
+                            color: g.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            hasAmount
+                                ? formatInvestmentAmount(currency, _amount)
+                                : '${currency.symbol}0',
+                            style: TextStyle(
+                              fontSize: 38,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -1.1,
+                              color: hasAmount
+                                  ? g.textPrimary
+                                  : g.textSecondary.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: g.primarySoft,
+                            borderRadius:
+                                BorderRadius.circular(AppRadius.pill),
+                            border: Border.all(
+                              color: g.primary.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.calculate_rounded,
+                                size: 16,
+                                color: g.primary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                hasAmount
+                                    ? 'Tap to recalculate'
+                                    : 'Tap to calculate',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: g.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
             if (fieldState.hasError) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Padding(
                 padding: const EdgeInsets.only(left: 12),
                 child: Text(
                   fieldState.errorText!,
-                  style: const TextStyle(color: AppColors.error, fontSize: 12),
+                  style: TextStyle(color: g.danger, fontSize: 12),
                 ),
               ),
             ],
             if (hasEditDelta) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Container(
                 width: double.infinity,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: (isAdded ? AppColors.success : AppColors.error)
-                      .withValues(alpha: 0.12),
+                      .withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: (isAdded ? AppColors.success : AppColors.error)
-                        .withValues(alpha: 0.3),
+                        .withValues(alpha: 0.35),
                   ),
                 ),
                 child: Row(
@@ -980,35 +991,25 @@ class _AddInvestmentScreenState extends State<AddInvestmentScreen> {
     );
   }
 
-  Widget _buildDatePicker(ThemeData theme, bool isDark) {
-    return InkWell(
+  Widget _buildDatePicker(ThemeData theme, GlassTokens g) {
+    return GlassContainer(
+      borderRadius: AppRadius.md,
+      blur: 0,
+      elevated: true,
       onTap: _pickDate,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          color: theme.inputDecorationTheme.fillColor,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.calendar_month_rounded,
-              color: isDark ? AppColors.accentLime : AppColors.primaryTeal,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              DateFormat('EEEE, dd MMMM yyyy').format(_selectedDate),
-              style: theme.textTheme.bodyLarge,
-            ),
-            const Spacer(),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              size: 16,
-              color: theme.textTheme.bodySmall?.color,
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      child: Row(
+        children: [
+          Icon(Icons.calendar_month_rounded, color: g.primary),
+          const SizedBox(width: 12),
+          Text(
+            DateFormat('EEEE, dd MMMM yyyy').format(_selectedDate),
+            style: theme.textTheme.bodyLarge,
+          ),
+          const Spacer(),
+          Icon(Icons.arrow_forward_ios_rounded,
+              size: 16, color: g.textSecondary),
+        ],
       ),
     );
   }

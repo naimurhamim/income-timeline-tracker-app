@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/entry.dart';
-import '../providers/entry_provider.dart';
 import '../providers/currency_provider.dart';
+import '../providers/entry_provider.dart';
 import '../theme/app_colors.dart';
+import '../theme/glass_tokens.dart';
+import '../widgets/glass_surface.dart';
 import 'add_entry_screen.dart';
 
 class EntryDetailScreen extends StatelessWidget {
@@ -15,6 +17,7 @@ class EntryDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final g = context.glass;
     final isDark = theme.brightness == Brightness.dark;
     final currency = context.watch<CurrencyProvider>();
     final currencyFormat = NumberFormat.currency(
@@ -23,133 +26,181 @@ class EntryDetailScreen extends StatelessWidget {
       decimalDigits: 0,
     );
     final entryProvider = context.watch<EntryProvider>();
-    
-    // Find the entry from live provider data
+
     final entry = entryProvider.entries.cast<EntryModel?>().firstWhere(
-      (e) => e!.id == entryId,
-      orElse: () => null,
-    );
-    
+          (e) => e!.id == entryId,
+          orElse: () => null,
+        );
+
     if (entry == null) {
       return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.pop(context),
+        backgroundColor: Colors.transparent,
+        body: GlassBackdrop(
+          child: SafeArea(
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: GlassCircleButton(
+                      icon: Icons.arrow_back_rounded,
+                      tooltip: 'Back',
+                      onTap: () => Navigator.pop(context),
+                    ),
+                  ),
+                ),
+                const Expanded(
+                  child: Center(child: Text('Entry not found or deleted')),
+                ),
+              ],
+            ),
           ),
         ),
-        body: const Center(child: Text('Entry not found or deleted')),
       );
     }
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 200,
-            pinned: true,
-            backgroundColor:
-                isDark ? AppColors.primaryTealDark : AppColors.primaryTeal,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.edit_rounded, color: Colors.white),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AddEntryScreen(editEntry: entry),
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_rounded, color: Colors.white),
-                onPressed: () => _confirmDelete(context, entry),
-              ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: isDark
-                      ? AppColors.headerGradientDark
-                      : AppColors.headerGradient,
-                ),
-                child: SafeArea(
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(height: 30),
-                        Text(
-                          currencyFormat.format(entry.amount),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 36,
-                            fontWeight: FontWeight.w800,
+      backgroundColor: Colors.transparent,
+      body: GlassBackdrop(
+        child: SafeArea(
+          bottom: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(maxWidth: AppLayout.maxContentWidth),
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.sm,
+                        AppSpacing.lg,
+                        AppSpacing.md,
+                      ),
+                      child: Row(
+                        children: [
+                          GlassCircleButton(
+                            icon: Icons.arrow_back_rounded,
+                            tooltip: 'Back',
+                            size: 42,
+                            onTap: () => Navigator.pop(context),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          entry.title,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            fontSize: 16,
+                          const Spacer(),
+                          GlassCircleButton(
+                            icon: Icons.edit_rounded,
+                            tooltip: 'Edit Entry',
+                            size: 42,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    AddEntryScreen(editEntry: entry),
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: AppSpacing.xs),
+                          GlassCircleButton(
+                            icon: Icons.delete_outline_rounded,
+                            iconColor: g.danger,
+                            tooltip: 'Delete Entry',
+                            size: 42,
+                            onTap: () => _confirmDelete(context, entry),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  // Status Card
-                  _buildStatusCard(theme, entry),
-                  const SizedBox(height: 16),
-
-                  // Details Card
-                  _buildDetailsCard(theme, currencyFormat, entry),
-                  const SizedBox(height: 16),
-
-                  // Notes Card
-                  if (entry.notes != null && entry.notes!.isNotEmpty)
-                    _buildNotesCard(theme, entry),
-
-                  const SizedBox(height: 24),
-
-                  // Action Buttons
-                  _buildActionButtons(context, theme, entry),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          gradient: isDark
+                              ? AppColors.headerGradientDark
+                              : AppColors.headerGradient,
+                          borderRadius: BorderRadius.circular(AppRadius.xl),
+                          border: Border.all(
+                            color: Colors.white
+                                .withValues(alpha: isDark ? 0.16 : 0.24),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              currencyFormat.format(entry.amount),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 36,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              entry.title,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.9),
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Column(
+                        children: [
+                          _buildStatusCard(theme, g, entry),
+                          const SizedBox(height: AppSpacing.md),
+                          _buildDetailsCard(
+                              theme, g, currencyFormat, entry),
+                          if (entry.notes != null &&
+                              entry.notes!.isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            _buildNotesCard(theme, g, entry),
+                          ],
+                          const SizedBox(height: AppSpacing.xl),
+                          _buildActionButtons(context, g, entry),
+                          const SizedBox(height: AppSpacing.xl),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildStatusCard(ThemeData theme, EntryModel entry) {
-    Color statusColor;
-    String statusText;
-    IconData statusIcon;
+  Widget _buildStatusCard(
+      ThemeData theme, GlassTokens g, EntryModel entry) {
+    final Color statusColor;
+    final String statusText;
+    final IconData statusIcon;
 
     if (entry.isReceived) {
-      statusColor = AppColors.success;
-      statusText = 'Received on ${DateFormat('dd MMM yyyy').format(entry.receivedDate ?? DateTime.now())}';
+      statusColor = g.success;
+      statusText =
+          'Received on ${DateFormat('dd MMM yyyy').format(entry.receivedDate ?? DateTime.now())}';
       statusIcon = Icons.check_circle_rounded;
     } else if (entry.isDueToday) {
-      statusColor = AppColors.warning;
+      statusColor = g.warning;
       statusText = 'Due Today!';
       statusIcon = Icons.today_rounded;
     } else if (entry.isOverdue) {
-      statusColor = AppColors.error;
+      statusColor = g.danger;
       statusText = 'Overdue by ${-entry.daysRemaining} days';
       statusIcon = Icons.warning_rounded;
     } else {
@@ -158,26 +209,23 @@ class EntryDetailScreen extends StatelessWidget {
       statusIcon = Icons.timelapse_rounded;
     }
 
-    return Container(
+    return GlassContainer(
+      borderRadius: AppRadius.md,
+      blur: 0,
+      fillColor: statusColor.withValues(alpha: 0.14),
+      borderColor: statusColor.withValues(alpha: 0.35),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: statusColor.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: statusColor.withValues(alpha: 0.3),
-        ),
-      ),
       child: Row(
         children: [
-          Icon(statusIcon, color: statusColor, size: 28),
+          Icon(statusIcon, color: statusColor, size: 26),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               statusText,
               style: TextStyle(
                 color: statusColor,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -186,27 +234,25 @@ class EntryDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailsCard(ThemeData theme, NumberFormat currencyFormat, EntryModel entry) {
-    return Container(
+  Widget _buildDetailsCard(
+    ThemeData theme,
+    GlassTokens g,
+    NumberFormat currencyFormat,
+    EntryModel entry,
+  ) {
+    return GlassContainer(
+      borderRadius: AppRadius.lg,
+      blur: 0,
+      elevated: true,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
       child: Column(
         children: [
-          _buildDetailRow(theme, 'Category', entry.type,
-              Icons.category_rounded),
+          _buildDetailRow(
+              theme, g, 'Category', entry.type, Icons.category_rounded),
           const Divider(height: 24),
           _buildDetailRow(
             theme,
+            g,
             'Expected Date',
             DateFormat('EEEE, dd MMMM yyyy').format(entry.expectedDate),
             Icons.calendar_today_rounded,
@@ -214,6 +260,7 @@ class EntryDetailScreen extends StatelessWidget {
           const Divider(height: 24),
           _buildDetailRow(
             theme,
+            g,
             'Priority',
             _getPriorityLabel(entry),
             Icons.flag_rounded,
@@ -222,6 +269,7 @@ class EntryDetailScreen extends StatelessWidget {
             const Divider(height: 24),
             _buildDetailRow(
               theme,
+              g,
               'Recurring',
               _getRecurringLabel(entry),
               Icons.repeat_rounded,
@@ -230,6 +278,7 @@ class EntryDetailScreen extends StatelessWidget {
           const Divider(height: 24),
           _buildDetailRow(
             theme,
+            g,
             'Created',
             DateFormat('dd MMM yyyy, HH:mm').format(entry.createdAt),
             Icons.access_time_rounded,
@@ -240,10 +289,15 @@ class EntryDetailScreen extends StatelessWidget {
   }
 
   Widget _buildDetailRow(
-      ThemeData theme, String label, String value, IconData icon) {
+    ThemeData theme,
+    GlassTokens g,
+    String label,
+    String value,
+    IconData icon,
+  ) {
     return Row(
       children: [
-        Icon(icon, size: 20, color: theme.textTheme.bodySmall?.color),
+        Icon(icon, size: 20, color: g.textSecondary),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -254,7 +308,7 @@ class EntryDetailScreen extends StatelessWidget {
               Text(
                 value,
                 style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -264,49 +318,38 @@ class EntryDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildNotesCard(ThemeData theme, EntryModel entry) {
-    return Container(
-      width: double.infinity,
+  Widget _buildNotesCard(
+      ThemeData theme, GlassTokens g, EntryModel entry) {
+    return GlassContainer(
+      borderRadius: AppRadius.lg,
+      blur: 0,
+      elevated: true,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.notes_rounded,
-                  size: 20, color: theme.textTheme.bodySmall?.color),
+              Icon(Icons.notes_rounded, size: 20, color: g.textSecondary),
               const SizedBox(width: 8),
               Text('Notes', style: theme.textTheme.bodySmall),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            entry.notes!,
-            style: theme.textTheme.bodyLarge,
-          ),
+          Text(entry.notes!, style: theme.textTheme.bodyLarge),
         ],
       ),
     );
   }
 
-  Widget _buildActionButtons(BuildContext context, ThemeData theme, EntryModel entry) {
+  Widget _buildActionButtons(
+      BuildContext context, GlassTokens g, EntryModel entry) {
     final provider = context.read<EntryProvider>();
 
     if (entry.isReceived) {
       return SizedBox(
         width: double.infinity,
-        height: 56,
+        height: 54,
         child: OutlinedButton.icon(
           onPressed: () {
             provider.markUnreceived(entry.id);
@@ -315,10 +358,8 @@ class EntryDetailScreen extends StatelessWidget {
           icon: const Icon(Icons.undo_rounded),
           label: const Text('Mark as Unreceived'),
           style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: AppColors.warning),
-            foregroundColor: AppColors.warning,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
+            side: BorderSide(color: g.warning),
+            foregroundColor: g.warning,
           ),
         ),
       );
@@ -326,8 +367,8 @@ class EntryDetailScreen extends StatelessWidget {
 
     return SizedBox(
       width: double.infinity,
-      height: 56,
-      child: ElevatedButton.icon(
+      height: 54,
+      child: FilledButton.icon(
         onPressed: () {
           provider.markReceived(entry.id);
           Navigator.pop(context);
@@ -367,10 +408,15 @@ class EntryDetailScreen extends StatelessWidget {
   }
 
   void _confirmDelete(BuildContext context, EntryModel entry) {
-    showDialog(
+    final g = context.glass;
+    showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: g.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(color: g.glassBorder),
+        ),
         title: const Text('Delete Entry?'),
         content: const Text('This action cannot be undone.'),
         actions: [
@@ -384,9 +430,7 @@ class EntryDetailScreen extends StatelessWidget {
               context.read<EntryProvider>().deleteEntry(entry.id);
               Navigator.pop(context);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Delete'),
           ),
         ],
