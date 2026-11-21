@@ -180,7 +180,7 @@ class _AppInitializerState extends State<AppInitializer>
         await notificationService.requestPermission();
       }
       await notificationService
-          .scheduleAllEntryNotifications(entryProvider.upcomingEntries);
+          .scheduleAllEntryNotifications(entryProvider.allUpcoming);
 
       if (mounted) {
         setState(() => _isInitialized = true);

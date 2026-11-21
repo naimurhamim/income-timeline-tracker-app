@@ -8,6 +8,7 @@ import 'package:money_tracker/models/cloud_backup_payload.dart';
 import 'package:money_tracker/models/entry.dart';
 import 'package:money_tracker/models/investment.dart';
 import 'package:money_tracker/services/google_drive_backup_client.dart';
+import 'package:money_tracker/services/notification_service.dart';
 import 'package:money_tracker/services/update_service.dart';
 import 'package:money_tracker/theme/app_colors.dart';
 
@@ -458,6 +459,48 @@ void main() {
 
       expect(HSLColor.fromColor(liftedTeal).lightness, greaterThanOrEqualTo(0.62));
       expect(HSLColor.fromColor(liftedGreen).lightness, greaterThanOrEqualTo(0.62));
+    });
+  });
+
+  group('NotificationService schedule helpers', () {
+    test(
+        'computeEffectiveScheduleTime preserves future targets and applies 5s grace in same minute',
+        () {
+      final now = DateTime(2026, 11, 21, 19, 10, 20);
+
+      final future = DateTime(2026, 11, 21, 19, 15);
+      expect(
+        NotificationService.computeEffectiveScheduleTime(future, now),
+        equals(future),
+      );
+
+      final sameMinute = DateTime(2026, 11, 21, 19, 10);
+      expect(
+        NotificationService.computeEffectiveScheduleTime(sameMinute, now),
+        equals(now.add(const Duration(seconds: 5))),
+      );
+
+      final lateSameMinute = DateTime(2026, 11, 21, 19, 10);
+      expect(
+        NotificationService.computeEffectiveScheduleTime(
+          lateSameMinute,
+          DateTime(2026, 11, 21, 19, 10, 56),
+        ),
+        isNull,
+      );
+
+      final pastMinute = DateTime(2026, 11, 21, 19, 9);
+      expect(
+        NotificationService.computeEffectiveScheduleTime(pastMinute, now),
+        isNull,
+      );
+    });
+
+    test('formatHourMinute formats 12-hour clock labels accurately', () {
+      expect(NotificationService.formatHourMinute(0, 0), '12:00 AM');
+      expect(NotificationService.formatHourMinute(9, 5), '9:05 AM');
+      expect(NotificationService.formatHourMinute(12, 30), '12:30 PM');
+      expect(NotificationService.formatHourMinute(21, 45), '9:45 PM');
     });
   });
 }

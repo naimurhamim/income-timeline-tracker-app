@@ -25,7 +25,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String? _expandedSection;
-  String _appVersion = '3.0.0';
+  String _appVersion = '3.0.1';
   bool _notificationsEnabled = true;
 
   @override
@@ -294,12 +294,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const Divider(height: 1),
 
-                        // 4. Notifications & Reminders (with Test Notification button!)
+                        // 4. Notifications & Reminders (with Custom Time + Test Notification)
                         _AccordionSection(
                           icon: Icons.notifications_none_rounded,
                           title: 'Notifications & Reminders',
                           subtitle: _notificationsEnabled
-                              ? 'Enabled · 7-day, 3-day & due-day 9:00 AM alerts'
+                              ? 'Enabled · Alerts at ${NotificationService().formattedReminderTime} (7d, 3d & due day)'
                               : 'Permission needed or paused',
                           expanded: _expandedSection == 'notifications',
                           onToggle: () => _toggleSection('notifications'),
@@ -341,6 +341,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       ),
                                     ],
                                   ),
+                                  const SizedBox(height: AppSpacing.sm),
+                                  GlassContainer(
+                                    borderRadius: AppRadius.sm,
+                                    blur: 0,
+                                    fillColor: g.glassFill,
+                                    onTap: () async {
+                                      final notifService =
+                                          NotificationService();
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: TimeOfDay(
+                                          hour: notifService.reminderHour,
+                                          minute: notifService.reminderMinute,
+                                        ),
+                                      );
+                                      if (picked == null || !context.mounted) {
+                                        return;
+                                      }
+                                      final messenger =
+                                          ScaffoldMessenger.of(context);
+                                      await notifService.setReminderTime(
+                                        picked.hour,
+                                        picked.minute,
+                                        upcomingEntries:
+                                            entryProvider.allUpcoming,
+                                      );
+                                      final count = await notifService
+                                          .pendingNotificationCount();
+                                      if (mounted) setState(() {});
+                                      messenger
+                                        ..hideCurrentSnackBar()
+                                        ..showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Reminder time set to ${notifService.formattedReminderTime} ($count active reminder${count == 1 ? '' : 's'} scheduled).',
+                                            ),
+                                          ),
+                                        );
+                                    },
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.md,
+                                      vertical: 12,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.schedule_rounded,
+                                          size: 18,
+                                          color: g.primary,
+                                        ),
+                                        const SizedBox(width: AppSpacing.sm),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Reminder Time',
+                                                style:
+                                                    theme.textTheme.labelLarge,
+                                              ),
+                                              Text(
+                                                'Tap to customize 7d, 3d & due-day alert time',
+                                                style:
+                                                    theme.textTheme.bodySmall,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: g.primarySoft,
+                                            borderRadius: BorderRadius.circular(
+                                              AppRadius.pill,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            NotificationService()
+                                                .formattedReminderTime,
+                                            style: theme.textTheme.labelMedium
+                                                ?.copyWith(
+                                              color: g.primary,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                   const SizedBox(height: AppSpacing.md),
                                   OutlinedButton.icon(
                                     key: const Key('test_notification_button'),
@@ -350,9 +443,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       final msg = await NotificationService()
                                           .showTestNotification();
                                       await _checkNotificationPermission();
-                                      messenger.showSnackBar(
-                                        SnackBar(content: Text(msg)),
-                                      );
+                                      messenger
+                                        ..hideCurrentSnackBar()
+                                        ..showSnackBar(
+                                          SnackBar(content: Text(msg)),
+                                        );
                                     },
                                     icon: const Icon(
                                         Icons.notifications_outlined,
@@ -365,17 +460,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     onPressed: () async {
                                       final messenger =
                                           ScaffoldMessenger.of(context);
-                                      await NotificationService()
+                                      final notifService =
+                                          NotificationService();
+                                      await notifService.requestPermission();
+                                      await notifService
                                           .scheduleAllEntryNotifications(
                                         entryProvider.allUpcoming,
                                       );
-                                      messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'All upcoming entry reminders rescheduled.',
+                                      final count = await notifService
+                                          .pendingNotificationCount();
+                                      await _checkNotificationPermission();
+                                      messenger
+                                        ..hideCurrentSnackBar()
+                                        ..showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              '$count upcoming reminder${count == 1 ? '' : 's'} scheduled for ${notifService.formattedReminderTime}.',
+                                            ),
                                           ),
-                                        ),
-                                      );
+                                        );
                                     },
                                     icon: const Icon(Icons.refresh_rounded,
                                         size: 18),
