@@ -61,7 +61,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final currency = context.watch<CurrencyProvider>();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      notifProvider.generateFromEntries(entryProvider.upcomingEntries);
+      notifProvider.generateFromEntries(entryProvider.allUpcoming);
     });
 
     final displayName = accountProvider.isSignedIn &&

@@ -306,6 +306,11 @@ class EntryProvider extends ChangeNotifier {
     onEntriesChanged?.call(allUpcoming);
   }
 
+  /// Re-schedules device alarms and refreshes in-app alerts from current SQLite entries.
+  void syncNotificationsAndAlerts() {
+    _afterChange();
+  }
+
   void setSearchQuery(String? query) {
     _searchQuery = (query != null && query.isEmpty) ? null : query;
     _applyFilters();

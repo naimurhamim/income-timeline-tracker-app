@@ -23,6 +23,7 @@ class NotificationService {
 
   bool _initialized = false;
   Future<void>? _initFuture;
+  bool _permissionRequestInFlight = false;
   int _reminderHour = 9;
   int _reminderMinute = 0;
 
@@ -38,7 +39,7 @@ class NotificationService {
     return '$h12:${minute.toString().padLeft(2, '0')} $period';
   }
 
-  /// Returns [target] when in the future, or `now + 5s` if [target] is in the current minute (< 55s ago).
+  /// Returns [target] when in the future, or `now + 5s` if [target] is in the current minute (< 60s ago).
   static DateTime? computeEffectiveScheduleTime(
     DateTime target,
     DateTime now,
@@ -46,7 +47,7 @@ class NotificationService {
     if (target.isAfter(now)) return target;
     final elapsed = now.difference(target);
     if (!elapsed.isNegative &&
-        elapsed.inSeconds < 55 &&
+        elapsed.inSeconds < 60 &&
         target.year == now.year &&
         target.month == now.month &&
         target.day == now.day &&
@@ -102,18 +103,22 @@ class NotificationService {
       );
 
       if (defaultTargetPlatform == TargetPlatform.android) {
-        final android = _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-        await android?.createNotificationChannel(
-          const AndroidNotificationChannel(
-            _channelId,
-            _channelName,
-            description: _channelDescription,
-            importance: Importance.max,
-            playSound: true,
-            enableVibration: true,
-          ),
-        );
+        try {
+          final android = _plugin.resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+          await android?.createNotificationChannel(
+            const AndroidNotificationChannel(
+              _channelId,
+              _channelName,
+              description: _channelDescription,
+              importance: Importance.max,
+              playSound: true,
+              enableVibration: true,
+            ),
+          );
+        } catch (e) {
+          debugPrint('Notification channel init warning: $e');
+        }
       }
 
       _initialized = true;
@@ -174,19 +179,48 @@ class NotificationService {
   Future<bool> requestPermission() async {
     await init();
     if (!_supportsPlatform) return true;
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (android != null) {
-      final granted = await android.requestNotificationsPermission() ?? true;
-      try {
-        final canExact = await android.canScheduleExactNotifications();
-        if (canExact == false) {
-          await android.requestExactAlarmsPermission();
+    if (_permissionRequestInFlight) return isPermissionGranted();
+    _permissionRequestInFlight = true;
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android != null) {
+        bool granted;
+        try {
+          granted = await android.requestNotificationsPermission() ?? true;
+        } catch (_) {
+          granted = await isPermissionGranted();
         }
-      } catch (_) {}
-      return granted;
+        try {
+          final canExact = await android.canScheduleExactNotifications();
+          if (canExact == false) {
+            await android.requestExactAlarmsPermission();
+          }
+        } catch (_) {}
+        return granted;
+      }
+      return true;
+    } finally {
+      _permissionRequestInFlight = false;
     }
-    return true;
+  }
+
+  Future<void> _ensureExactAlarmPermission() async {
+    if (!_supportsPlatform || _permissionRequestInFlight) return;
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    _permissionRequestInFlight = true;
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return;
+      final canExact = await android.canScheduleExactNotifications();
+      if (canExact == false) {
+        await android.requestExactAlarmsPermission();
+      }
+    } catch (_) {
+    } finally {
+      _permissionRequestInFlight = false;
+    }
   }
 
   /// Check if permission is granted
@@ -232,12 +266,29 @@ class NotificationService {
     }
   }
 
-  /// Generates a stable, positive 31-bit int from a string ID.
-  static int _stableNotifId(String entryId, int offset) {
+  /// Generates a stable, positive 31-bit int from any entry ID string.
+  @visibleForTesting
+  static int stableNotifId(String entryId, int offset) {
     final hex = entryId.replaceAll('-', '');
-    final base = int.parse(hex.substring(0, 8), radix: 16) & 0x7FFFFFFF;
-    return (base % 100000000) * 3 + offset;
+    final parsed = hex.length >= 8
+        ? int.tryParse(hex.substring(0, 8), radix: 16)
+        : null;
+    if (parsed != null) {
+      final base = (parsed & 0x7FFFFFFF) % 100000000;
+      return (base == 0 && offset == 0 ? 1 : base) * 3 + offset;
+    }
+    var hash = 2166136261;
+    for (final unit in entryId.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 16777619) & 0x7FFFFFFF;
+    }
+    final mod = hash % 100000000;
+    final base = (mod == 0 && offset == 0) ? 1 : mod;
+    return base * 3 + offset;
   }
+
+  static int _stableNotifId(String entryId, int offset) =>
+      stableNotifId(entryId, offset);
 
   Future<AndroidScheduleMode> _preferredAndroidScheduleMode() async {
     final android = _plugin.resolvePlatformSpecificImplementation<
@@ -445,7 +496,7 @@ class NotificationService {
     if (!granted) {
       granted = await requestPermission();
     } else {
-      await requestPermission();
+      await _ensureExactAlarmPermission();
     }
     if (!granted) {
       return 'Notification permission denied. Please enable notifications in App Settings.';

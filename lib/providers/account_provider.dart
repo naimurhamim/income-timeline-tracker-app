@@ -272,6 +272,7 @@ class AccountProvider extends ChangeNotifier {
       await _categories?.loadCategories();
       await _entries?.loadAll();
       await _investments?.loadInvestments();
+      _entries?.syncNotificationsAndAlerts();
     } finally {
       _suppressAutoSync = false;
     }
@@ -491,6 +492,7 @@ class AccountProvider extends ChangeNotifier {
       await _categories?.loadCategories();
       await _entries?.loadAll();
       await _investments?.loadInvestments();
+      _entries?.syncNotificationsAndAlerts();
     } finally {
       _suppressAutoSync = false;
     }

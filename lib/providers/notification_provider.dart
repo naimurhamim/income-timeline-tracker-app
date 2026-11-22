@@ -106,10 +106,36 @@ class NotificationProvider extends ChangeNotifier {
 
     // Prune read keys that are no longer relevant (entry was received/deleted)
     final currentKeys = newItems.map((i) => i.key).toSet();
-    _readKeys = _readKeys.intersection(currentKeys);
+    final prunedReadKeys = _readKeys.intersection(currentKeys);
 
+    if (!_itemsChanged(newItems, prunedReadKeys)) {
+      return;
+    }
+
+    _readKeys = prunedReadKeys;
     _items = newItems;
     notifyListeners();
+  }
+
+  bool _itemsChanged(
+    List<NotificationItem> nextItems,
+    Set<String> nextReadKeys,
+  ) {
+    if (_items.length != nextItems.length ||
+        _readKeys.length != nextReadKeys.length) {
+      return true;
+    }
+    for (var i = 0; i < _items.length; i++) {
+      final a = _items[i];
+      final b = nextItems[i];
+      if (a.key != b.key ||
+          a.title != b.title ||
+          a.body != b.body ||
+          a.daysLeft != b.daysLeft) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Mark all current notifications as read.

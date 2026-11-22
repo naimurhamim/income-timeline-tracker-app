@@ -171,7 +171,8 @@ class _AppInitializerState extends State<AppInitializer>
       await authService.init();
 
       await notifProvider.init();
-      notifProvider.generateFromEntries(entryProvider.upcomingEntries);
+      notifProvider.generateFromEntries(entryProvider.allUpcoming);
+      entryProvider.onEntriesChanged = notifProvider.generateFromEntries;
 
       final notificationService = NotificationService();
       await notificationService.init();

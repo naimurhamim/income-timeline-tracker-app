@@ -7,6 +7,7 @@ import 'package:money_tracker/models/category.dart';
 import 'package:money_tracker/models/cloud_backup_payload.dart';
 import 'package:money_tracker/models/entry.dart';
 import 'package:money_tracker/models/investment.dart';
+import 'package:money_tracker/providers/notification_provider.dart';
 import 'package:money_tracker/services/google_drive_backup_client.dart';
 import 'package:money_tracker/services/notification_service.dart';
 import 'package:money_tracker/services/update_service.dart';
@@ -480,13 +481,14 @@ void main() {
         equals(now.add(const Duration(seconds: 5))),
       );
 
+      final lateNow = DateTime(2026, 11, 21, 19, 10, 56);
       final lateSameMinute = DateTime(2026, 11, 21, 19, 10);
       expect(
         NotificationService.computeEffectiveScheduleTime(
           lateSameMinute,
-          DateTime(2026, 11, 21, 19, 10, 56),
+          lateNow,
         ),
-        isNull,
+        equals(lateNow.add(const Duration(seconds: 5))),
       );
 
       final pastMinute = DateTime(2026, 11, 21, 19, 9);
@@ -496,11 +498,79 @@ void main() {
       );
     });
 
+    test('stableNotifId handles UUIDs, short IDs, non-hex IDs, and empty IDs safely',
+        () {
+      const ids = [
+        '550e8400-e29b-41d4-a716-446655440000',
+        'e1',
+        'legacy_salary_oct',
+        '',
+      ];
+      for (final id in ids) {
+        for (var offset = 0; offset < 3; offset++) {
+          final generated = NotificationService.stableNotifId(id, offset);
+          expect(generated, greaterThan(0));
+          expect(generated, lessThanOrEqualTo(0x7FFFFFFF));
+          expect(
+            generated,
+            equals(NotificationService.stableNotifId(id, offset)),
+          );
+        }
+      }
+    });
+
     test('formatHourMinute formats 12-hour clock labels accurately', () {
       expect(NotificationService.formatHourMinute(0, 0), '12:00 AM');
       expect(NotificationService.formatHourMinute(9, 5), '9:05 AM');
       expect(NotificationService.formatHourMinute(12, 30), '12:30 PM');
       expect(NotificationService.formatHourMinute(21, 45), '9:45 PM');
+    });
+  });
+
+  group('NotificationProvider.generateFromEntries', () {
+    test('skips redundant notifyListeners when items are unchanged and notifies on add/receive',
+        () {
+      final notif = NotificationProvider();
+      var notifyCount = 0;
+      notif.addListener(() => notifyCount++);
+
+      final now = DateTime.now();
+      final tomorrow = DateTime(now.year, now.month, now.day).add(
+        const Duration(days: 1),
+      );
+      final e1 = EntryModel(
+        id: 'e-1',
+        title: 'Dividend',
+        amount: 5000,
+        expectedDate: tomorrow,
+        type: 'Savings',
+      );
+      final e2 = EntryModel(
+        id: 'e-2',
+        title: 'FD Interest',
+        amount: 8000,
+        expectedDate: tomorrow.add(const Duration(days: 2)),
+        type: 'FD',
+      );
+
+      notif.generateFromEntries([e1]);
+      expect(notifyCount, 1);
+      expect(notif.items, hasLength(1));
+
+      // Identical call should NOT emit another notification rebuild.
+      notif.generateFromEntries([e1]);
+      expect(notifyCount, 1);
+
+      // Adding another upcoming entry notifies immediately.
+      notif.generateFromEntries([e1, e2]);
+      expect(notifyCount, 2);
+      expect(notif.items, hasLength(2));
+
+      // Marking e2 received removes it and notifies once.
+      notif.generateFromEntries([e1, e2.copyWith(isReceived: true)]);
+      expect(notifyCount, 3);
+      expect(notif.items, hasLength(1));
+      expect(notif.items.first.entryId, 'e-1');
     });
   });
 }
